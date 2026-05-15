@@ -94,9 +94,9 @@ class MainWindow:
     def _save_window_position(self, window):
         """Save current window position to config."""
         try:
-            win = window.TKWindow
-            self.window_x = win.winfo_x()
-            self.window_y = win.winfo_y()
+            pos = window.current_location()
+            self.window_x = pos[0]
+            self.window_y = pos[1]
             self.config.set('ui', 'window_x', self.window_x)
             self.config.set('ui', 'window_y', self.window_y)
             self.config.save()
@@ -141,8 +141,9 @@ class MainWindow:
 
             # Handle custom progress update events
             if event == '-PROGRESS_UPDATE-':
-                window['-STATUS-'].update(values['-STATUS-'])
-                window['-PROGRESS-'].update(values['-PROGRESS-'])
+                data = values.get('-PROGRESS_UPDATE-', {})
+                window['-STATUS-'].update(data.get('-STATUS-', ''))
+                window['-PROGRESS-'].update(data.get('-PROGRESS-', 0))
                 continue
 
             if event in (sg.WINDOW_CLOSED, 'Exit'):
@@ -152,20 +153,21 @@ class MainWindow:
                         break
                 # Save window position on close
                 try:
-                    self.window_x = window.TKWindow.winfo_x()
-                    self.window_y = window.TKWindow.winfo_y()
+                    pos = window.current_location()
+                    self.window_x = pos[0]
+                    self.window_y = pos[1]
                     self.config.set('ui', 'window_x', self.window_x)
                     self.config.set('ui', 'window_y', self.window_y)
                     self.config.save()
-                except:
-                    pass
+                except Exception as e:
+                    print(f"Error saving position: {e}")
                 break
 
             # Save window position on move/resize
             if event == '-WINDOW_MOVED-':
                 try:
-                    self.window_x = window.TKWindow.winfo_x()
-                    self.window_y = window.TKWindow.winfo_y()
+                    self.window_x = window.current_location()[0]
+                    self.window_y = window.current_location()[1]
                 except:
                     pass
 
@@ -267,17 +269,9 @@ class MainWindow:
 
         # Save final position
         try:
-            self.window_x = window.TKWindow.winfo_x()
-            self.window_y = window.TKWindow.winfo_y()
-            self.config.set('ui', 'window_x', self.window_x)
-            self.config.set('ui', 'window_y', self.window_y)
-            self.config.save()
-        except:
-            pass
-        try:
-            win = window.TKWindow
-            self.config.set('ui', 'window_x', win.winfo_x())
-            self.config.set('ui', 'window_y', win.winfo_y())
+            pos = window.current_location()
+            self.config.set('ui', 'window_x', pos[0])
+            self.config.set('ui', 'window_y', pos[1])
             self.config.save()
         except:
             pass
@@ -452,7 +446,7 @@ class MainWindow:
         
         sg.popup_ok(
             'vconv - Video Converter\n\n'
-            'Version: 8.0.0\n'
+            'Version: 8.1.0\n'
             'License: GPLv3\n\n'
             f'🖥️  Hardware: {hw_name}\n'
             f'   Recommended: {recommended}\n\n'
@@ -567,14 +561,14 @@ class MainWindow:
                 sg.VerticalSeparator(),
                 sg.Col(right_panel, size=(550, 600), element_justification='left')
             ],
-            [sg.StatusBar(f'vconv v8.0.0 | {hw_name} | Files: 0 | Quality: {self.quality}', key='-STATUSBAR-', text_color='gray', expand_x=True)]
+            [sg.StatusBar(f'vconv v8.1.0 | {hw_name} | Files: 0 | Quality: {self.quality}', key='-STATUSBAR-', text_color='gray', expand_x=True)]
         ]
 
         return layout
 
     def _update_status(self, window):
         """Update status bar."""
-        window['-STATUSBAR-'].update(f'vconv v8.0.0 | {self.encoder_manager.get_hardware_name()} | Files: {len(self.files)} | Quality: {self.quality}')
+        window['-STATUSBAR-'].update(f'vconv v8.1.0 | {self.encoder_manager.get_hardware_name()} | Files: {len(self.files)} | Quality: {self.quality}')
 
     def _get_window_location(self, window):
         """Get window center location for popups."""

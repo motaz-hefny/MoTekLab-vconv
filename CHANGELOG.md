@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [8.1.0] - 2026-05-15
+
+### Fixed
+- **Progress Bar**: Fixed thread-safe UI updates using `write_event_value()`
+- **KeyError Crash**: Fixed crash during conversion from incorrect event data access
+- **popup_warning Error**: Changed to `popup_ok()` (PySimpleGUI compatibility)
+- **Window Position**: Improved position saving on window close
+- **Audio Bitrate**: Now properly disabled when audio encoder is "copy"
+- **Cancel vs Stop All**: Cancel skips current file, Stop All cancels all remaining
+- **Help Menu**: All submenu items now functional
+- **Folder Browser**: Added folder creation and quick access to common folders
+
+### Added
+- **Subtitle Info**: Analyze now shows subtitle count
+- **Settings Management**: Save current as default, Reset to defaults
+- **Default Folder**: Set/clear default folder in Settings menu
+- **Last Folder Memory**: Remembers last opened folder
+- **Log Analysis**: Added logging infrastructure for debugging
+- **UI Responsiveness**: Added 100ms timeout for UI updates during conversion
+
+---
+
 ## [8.0.0] - Unreleased
 
 ### ⚠️ Breaking Changes

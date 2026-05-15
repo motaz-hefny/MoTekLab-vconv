@@ -4,7 +4,7 @@ vconv - Video Converter CLI/GUI
 A modern video conversion application powered by HandBrakeCLI
 
 Author: MoTekLab
-Version: 8.0.0
+Version: 8.1.0
 License: GPLv3
 """
 
@@ -162,7 +162,7 @@ Examples:
 def show_version():
     """Display version information."""
     print("vconv - Video Converter")
-    print("Version: 8.0.0")
+    print("Version: 8.1.0")
     print("License: GPLv3")
     print("Powered by HandBrakeCLI")
 
@@ -309,7 +309,7 @@ def main():
     # Setup logging
     log_level = logging.DEBUG if args.debug else logging.INFO
     logger = setup_logging(level=log_level)
-    logger.info(f"Starting vconv v8.0.0...")
+    logger.info(f"Starting vconv v8.1.0...")
     logger.info(f"Input folder: {input_folder}")
 
     if args.folder_out:
