@@ -50,6 +50,8 @@ class MainWindow:
         self.output_dir = self.config.get('defaults', 'output_dir', 'source')  # source = in-place
         self.audio_encoder = 'copy'
         self.audio_bitrate = 128
+        self.last_folder = self.config.get('defaults', 'last_folder', '')
+        self.default_folder = self.config.get('defaults', 'default_folder', '')
 
         # Load window position
         self.window_x = self.config.get('ui', 'window_x', None)
@@ -202,6 +204,21 @@ class MainWindow:
             elif event == 'Quality:20':
                 self.quality = 20
                 window['-QUALITY-'].update(20)
+            elif event == 'Quality:18':
+                self.quality = 18
+                window['-QUALITY-'].update(18)
+            elif event == '🗂️ Set Default Folder...':
+                folder = sg.popup_get_folder('Select default folder for videos', initial_folder=self.last_folder if self.last_folder else None)
+                if folder:
+                    self.default_folder = folder
+                    self.config.set('defaults', 'default_folder', folder)
+                    self.config.save()
+                    sg.popup_ok(f'Default folder set to:\n{folder}', title='Default Folder')
+            elif event == '🗂️ Clear Default Folder':
+                self.default_folder = ''
+                self.config.set('defaults', 'default_folder', '')
+                self.config.save()
+                sg.popup_ok('Default folder cleared', title='Default Folder')
             elif event == 'Format:MP4':
                 window['-MP4-'].update(value=True)
                 self.format = 'mp4'
@@ -327,7 +344,7 @@ class MainWindow:
         layout = [
             [sg.Menu([
                 ['File', ['Add Files', 'Add Folder', '---', 'Exit']],
-                ['Settings', ['Quality:27', 'Quality:23', 'Quality:20', 'Quality:18', '---', 'Format:MP4', 'Format:MKV', '---', 'Encoder:Auto', 'Encoder:x265', 'Encoder:nvenc_h265']],
+                ['Settings', ['Quality:27', 'Quality:23', 'Quality:20', 'Quality:18', '---', 'Format:MP4', 'Format:MKV', '---', 'Encoder:Auto', 'Encoder:x265', 'Encoder:nvenc_h265', '---', '🗂️ Set Default Folder...', '🗂️ Clear Default Folder']],
                 ['Help', ['📖 User Guide', '⌨️ Keyboard Shortcuts', '---', 'About vconv']]
             ])],
             [
@@ -347,14 +364,22 @@ class MainWindow:
     def _add_files(self, window):
         """Add files via file dialog."""
         try:
+            initial_folder = self.last_folder if self.last_folder else (self.default_folder if self.default_folder else None)
             files = sg.popup_get_file(
                 'Select video files',
                 multiple_files=True,
-                file_types=(('Video Files', '*.mkv *.mp4 *.avi *.mov *.webm *.wmv *.flv *.m4v *.ts *.m2ts'),)
+                file_types=(('Video Files', '*.mkv *.mp4 *.avi *.mov *.webm *.wmv *.flv *.m4v *.ts *.m2ts'),),
+                initial_folder=initial_folder
             )
             if files:
                 new_files = files.split(';')
                 self.files.extend(new_files)
+                # Save folder from first file
+                if new_files:
+                    folder = os.path.dirname(new_files[0])
+                    self.last_folder = folder
+                    self.config.set('defaults', 'last_folder', folder)
+                    self.config.save()
                 window['-FILE_LIST-'].update(values=self.files)
                 self._update_status(window)
         except Exception as e:
@@ -363,8 +388,15 @@ class MainWindow:
     def _add_folder(self, window):
         """Add folder and scan for videos."""
         try:
-            folder = sg.popup_get_folder('Select folder containing videos')
+            # Use last folder or default as initial location
+            initial_folder = self.last_folder if self.last_folder else (self.default_folder if self.default_folder else None)
+            folder = sg.popup_get_folder('Select folder containing videos', initial_folder=initial_folder)
             if folder:
+                # Save as last folder
+                self.last_folder = folder
+                self.config.set('defaults', 'last_folder', folder)
+                self.config.save()
+
                 # Scan for videos with error handling
                 base_path = Path(folder)
                 videos = []
@@ -389,7 +421,7 @@ class MainWindow:
                     self.files.extend(videos)
                     window['-FILE_LIST-'].update(values=self.files)
                     self._update_status(window)
-                    sg.popup_info(f'Added {len(videos)} video files from folder\n\nTip: Use "Validate Files" to check them before converting.')
+                    sg.popup_ok(f'Added {len(videos)} video files from folder\n\nTip: Use "Validate Files" to check them before converting.', title='Files Added')
                 else:
                     sg.popup_warning('No video files found in the selected folder')
         except Exception as e:

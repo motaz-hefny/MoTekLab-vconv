@@ -35,7 +35,9 @@ class Config:
             'audio_bitrate': 128,
             'format': 'mp4',
             'output_dir': 'source',
-            'conflict_resolution': 'ask'
+            'conflict_resolution': 'ask',
+            'last_folder': '',
+            'default_folder': ''
         },
         'ui': {
             'window_width': 900,
