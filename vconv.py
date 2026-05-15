@@ -349,19 +349,21 @@ def main():
     print(f"\n🖥️  Detected hardware: {hw_info.name}")
     print(f"   Recommended encoder: {encoder_manager.get_recommended_encoder()}")
 
-    # Scan for videos
-    logger.info("Scanning for video files...")
-    video_files = scan_folder(input_folder, args.recursive)
+    # Scan for videos (only for batch/analyze modes, not GUI)
+    video_files = []
+    if args.batch or args.analyze:
+        logger.info("Scanning for video files...")
+        video_files = scan_folder(input_folder, args.recursive)
 
-    if not video_files:
-        print(f"\n❌ No video files found in: {input_folder}")
-        sys.exit(0)
+        if not video_files:
+            print(f"\n❌ No video files found in: {input_folder}")
+            sys.exit(0)
 
-    print(f"\n📁 Found {len(video_files)} video file(s)")
-    for f in video_files[:10]:
-        print(f"   - {f}")
-    if len(video_files) > 10:
-        print(f"   ... and {len(video_files) - 10} more")
+        print(f"\n📁 Found {len(video_files)} video file(s)")
+        for f in video_files[:10]:
+            print(f"   - {f}")
+        if len(video_files) > 10:
+            print(f"   ... and {len(video_files) - 10} more")
 
     # Determine mode of operation
     if args.analyze:

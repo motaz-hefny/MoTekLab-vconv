@@ -72,7 +72,7 @@ class DependencyChecker:
 
     def __init__(self):
         self.missing_deps: List[str] = []
-        self._check_all()
+        self.check_all()
 
     def check_all(self) -> bool:
         """Check all dependencies."""
