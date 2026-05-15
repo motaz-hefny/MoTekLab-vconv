@@ -107,8 +107,8 @@ Examples:
         '--preset', '-p',
         type=str,
         default=None,
-        choices=['ultra_fast', 'fast', 'balanced', 'high_quality', 'archive',
-                 'nvenc_fast', 'nvenc_quality', 'web_optimized', 'mobile', 'tv_show'],
+        choices=['fast', 'balanced', 'high_quality', 'archive',
+                 'nvenc_fast', 'nvenc_balanced', 'nvenc_quality', 'web_optimized', 'mobile', 'tv_show'],
         help='Use preset settings'
     )
     parser.add_argument(
