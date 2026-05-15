@@ -1,0 +1,115 @@
+{
+  "app": {
+    "title": "vconv - Video Converter",
+    "version": "Version",
+    "description": "A modern video conversion application powered by HandBrakeCLI"
+  },
+  "menu": {
+    "file": "File",
+    "add_files": "Add Files",
+    "add_folder": "Add Folder",
+    "settings": "Settings",
+    "exit": "Exit",
+    "help": "Help",
+    "about": "About",
+    "documentation": "Documentation"
+  },
+  "tabs": {
+    "convert": "Convert",
+    "analyze": "Analyze",
+    "presets": "Presets",
+    "queue": "Queue"
+  },
+  "encoder": {
+    "title": "Video Encoder",
+    "auto_detect": "Auto-detect",
+    "recommended": "Recommended",
+    "nvenc_h265": "NVIDIA HEVC (NVENC)",
+    "nvenc_h264": "NVIDIA H.264 (NVENC)",
+    "qsv_h265": "Intel HEVC (Quick Sync)",
+    "qsv_h264": "Intel H.264 (Quick Sync)",
+    "amf_h265": "AMD HEVC (AMF)",
+    "amf_h264": "AMD H.264 (AMF)",
+    "x265": "x265 (CPU)",
+    "x264": "x264 (CPU)",
+    "libsvtav1": "SVT-AV1 (CPU)"
+  },
+  "quality": {
+    "title": "Quality",
+    "rf": "RF Value",
+    "preset": "Encoding Preset"
+  },
+  "audio": {
+    "title": "Audio",
+    "encoder": "Encoder",
+    "bitrate": "Bitrate",
+    "channels": "Channels"
+  },
+  "output": {
+    "title": "Output",
+    "format": "Format",
+    "location": "Location",
+    "same_as_source": "Same as source",
+    "conflict": "Conflict Resolution",
+    "ask": "Ask",
+    "overwrite": "Overwrite",
+    "rename": "Auto-rename"
+  },
+  "actions": {
+    "convert": "Convert",
+    "analyze": "Analyze",
+    "check_all": "Check All",
+    "start_batch": "Start Batch",
+    "cancel": "Cancel",
+    "cancel_all": "Cancel All",
+    "clear": "Clear",
+    "save": "Save",
+    "load": "Load",
+    "reset": "Reset"
+  },
+  "status": {
+    "ready": "Ready",
+    "processing": "Processing",
+    "completed": "Completed",
+    "failed": "Failed",
+    "cancelled": "Cancelled",
+    "gpu_detected": "GPU Detected",
+    "no_gpu": "CPU Only",
+    "files_loaded": "Files Loaded",
+    "queue_items": "Queue Items"
+  },
+  "messages": {
+    "drop_files": "Drop video files here or click to browse",
+    "drop_folder": "Drop a folder to scan subfolders",
+    "no_files": "No video files found",
+    "validation_passed": "All files validated",
+    "validation_failed": "Some files have issues",
+    "conversion_complete": "Conversion complete",
+    "conversion_failed": "Conversion failed",
+    "install_deps": "Install required dependencies?",
+    "dependencies_missing": "Missing Dependencies",
+    "installing": "Installing...",
+    "install_success": "Installation successful",
+    "install_failed": "Installation failed"
+  },
+  "dialogs": {
+    "confirm_overwrite": "File exists. Overwrite?",
+    "confirm_cancel": "Cancel current operation?",
+    "confirm_exit": "Are you sure you want to exit?",
+    "save_preset": "Save Preset",
+    "preset_name": "Preset Name",
+    "select_output_dir": "Select Output Directory"
+  },
+  "filters": {
+    "denoise": "Denoise",
+    "deinterlace": "Deinterlace",
+    "crop": "Crop/Scale",
+    "rotate": "Rotation"
+  },
+  "subtitles": {
+    "title": "Subtitles",
+    "track": "Track",
+    "burn_in": "Burn In",
+    "external": "External SRT"
+  }
+}

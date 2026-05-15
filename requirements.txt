@@ -1,0 +1,14 @@
+# vconv Requirements
+# Python 3.8+
+
+# GUI Framework
+pysimplegui>=4.65.0
+
+# Optional: Better themed widgets
+# customtkinter>=5.2.0
+
+# Data handling
+# (No external dependencies needed - using stdlib json, configparser)
+
+# System utilities
+# (Using stdlib: subprocess, shutil, threading, tempfile, pathlib)

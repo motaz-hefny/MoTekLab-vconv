@@ -1,0 +1,138 @@
+{
+  "presets": {
+    "ultra_fast": {
+      "name": "Ultra Fast",
+      "description": "Quickest encoding, larger file size",
+      "encoder": "x264",
+      "quality": 28,
+      "audio_encoder": "aac",
+      "audio_bitrate": 128,
+      "preset": "ultrafast",
+      "filters": {
+        "denoise": "off",
+        "deinterlace": "off"
+      }
+    },
+    "fast": {
+      "name": "Fast",
+      "description": "Good quality with reasonable speed",
+      "encoder": "x265",
+      "quality": 25,
+      "audio_encoder": "aac",
+      "audio_bitrate": 128,
+      "preset": "fast",
+      "filters": {
+        "denoise": "off",
+        "deinterlace": "auto"
+      }
+    },
+    "balanced": {
+      "name": "Balanced",
+      "description": "Recommended balance between quality and size",
+      "encoder": "x265",
+      "quality": 23,
+      "audio_encoder": "aac",
+      "audio_bitrate": 128,
+      "preset": "medium",
+      "filters": {
+        "denoise": "light",
+        "deinterlace": "auto"
+      }
+    },
+    "high_quality": {
+      "name": "High Quality",
+      "description": "Better quality, slower encoding",
+      "encoder": "x265",
+      "quality": 20,
+      "audio_encoder": "aac",
+      "audio_bitrate": 192,
+      "preset": "slow",
+      "filters": {
+        "denoise": "medium",
+        "deinterlace": "auto"
+      }
+    },
+    "archive": {
+      "name": "Archive",
+      "description": "Best quality, largest file, for long-term storage",
+      "encoder": "x265",
+      "quality": 18,
+      "audio_encoder": "aac",
+      "audio_bitrate": 256,
+      "preset": "veryslow",
+      "filters": {
+        "denoise": "strong",
+        "deinterlace": "auto"
+      }
+    },
+    "nvenc_fast": {
+      "name": "NVENC Fast",
+      "description": "Fast GPU encoding with NVIDIA",
+      "encoder": "nvenc_h265",
+      "quality": 25,
+      "audio_encoder": "aac",
+      "audio_bitrate": 128,
+      "filters": {
+        "denoise": "off",
+        "deinterlace": "off"
+      }
+    },
+    "nvenc_quality": {
+      "name": "NVENC Quality",
+      "description": "High quality GPU encoding with NVIDIA",
+      "encoder": "nvenc_h265",
+      "quality": 22,
+      "audio_encoder": "aac",
+      "audio_bitrate": 192,
+      "filters": {
+        "denoise": "light",
+        "deinterlace": "auto"
+      }
+    },
+    "web_optimized": {
+      "name": "Web Optimized",
+      "description": "Optimized for streaming/web, H.264",
+      "encoder": "x264",
+      "quality": 23,
+      "audio_encoder": "aac",
+      "audio_bitrate": 128,
+      "preset": "medium",
+      "filters": {
+        "denoise": "off",
+        "deinterlace": "auto"
+      },
+      "advanced": {
+        "profile": "high",
+        "level": "4.1"
+      }
+    },
+    "mobile": {
+      "name": "Mobile",
+      "description": "Smaller size, compatible with mobile devices",
+      "encoder": "x264",
+      "quality": 26,
+      "audio_encoder": "aac",
+      "audio_bitrate": 96,
+      "preset": "fast",
+      "filters": {
+        "denoise": "light",
+        "deinterlace": "auto"
+      },
+      "resolution": "1280x720"
+    },
+    "tv_show": {
+      "name": "TV Show",
+      "description": "Good quality for TV shows, smaller files",
+      "encoder": "x265",
+      "quality": 24,
+      "audio_encoder": "aac",
+      "audio_bitrate": 128,
+      "preset": "medium",
+      "filters": {
+        "denoise": "light",
+        "deinterlace": "auto"
+      }
+    }
+  },
+  "custom": []
+}

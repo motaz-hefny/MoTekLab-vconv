@@ -1,0 +1,411 @@
+#!/bin/bash
+
+# vconv - Video Converter GUI v7.5 (Array Loop & PWD Save)
+# A GUI wrapper for HandBrakeCLI using yad.
+
+# ----------------------------------------------------------------------------
+# Logging Setup
+# ----------------------------------------------------------------------------
+LOGFILE_DEBUG="$HOME/vconv_debug.log"
+touch "$LOGFILE_DEBUG" 2>/dev/null
+exec 4>>"$LOGFILE_DEBUG"
+
+log_debug() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >&4
+}
+
+log_debug "Starting vconv v7.5..."
+
+# ----------------------------------------------------------------------------
+# Dependencies + Auto Install + Verify
+# ----------------------------------------------------------------------------
+check_and_install() {
+    local CMD="$1"
+    local PACKAGE="$2"
+    local VERIFY_CMD="$3" 
+    
+    local NEEDS_INSTALL=0
+    local ERR_MSG=""
+
+    if ! command -v "$CMD" &> /dev/null; then
+        NEEDS_INSTALL=1
+        ERR_MSG="Tool '$CMD' is missing."
+    elif [ -n "$VERIFY_CMD" ]; then
+        if ! eval "$VERIFY_CMD" &> /dev/null; then
+             local V_OUT=$(eval "$VERIFY_CMD" 2>&1 | head -n 1)
+             NEEDS_INSTALL=1
+             ERR_MSG="Tool '$CMD' is broken:\n$V_OUT"
+        fi
+    fi
+
+    if [ $NEEDS_INSTALL -eq 1 ]; then
+        local PKG_MGR=""
+        local INSTALL_CMD=""
+        if command -v apt-get &> /dev/null; then PKG_MGR="apt-get"; INSTALL_CMD="sudo apt-get update && sudo apt-get install --reinstall -y $PACKAGE";
+        elif command -v dnf &> /dev/null; then PKG_MGR="dnf"; INSTALL_CMD="sudo dnf reinstall -y $PACKAGE";
+        elif command -v pacman &> /dev/null; then PKG_MGR="pacman"; INSTALL_CMD="sudo pacman -Sy --noconfirm $PACKAGE";
+        elif command -v zypper &> /dev/null; then PKG_MGR="zypper"; INSTALL_CMD="sudo zypper install -f -y $PACKAGE"; fi
+        
+        if [ -n "$PKG_MGR" ]; then
+            yad --question --title="Fix Dependency: $CMD" \
+                --text="$ERR_MSG\n\nDo you want to run a system repair for '$PACKAGE' using $PKG_MGR?" \
+                --width=500 --center --on-top
+            if [ $? -eq 0 ]; then
+                local TERM_CMD=""
+                for t in x-terminal-emulator gnome-terminal konsole xfce4-terminal xterm; do
+                    if command -v $t &> /dev/null; then TERM_CMD="$t"; break; fi
+                done
+                if [ -n "$TERM_CMD" ]; then
+                    local EXEC_FLAG="-e"
+                    [[ "$TERM_CMD" == "gnome-terminal" ]] && EXEC_FLAG="--"
+                    $TERM_CMD $EXEC_FLAG bash -c "$INSTALL_CMD; echo ''; echo 'Done. Close this window.'; read -p '' -t 10"
+                    
+                    if [ -n "$VERIFY_CMD" ]; then
+                        if eval "$VERIFY_CMD" &> /dev/null; then 
+                            yad --info --text="Success! '$CMD' is now working." --timeout=3
+                            return 0
+                        else
+                            yad --error --text="Repair failed. '$CMD' is still broken.\nPlease check your system packages manually."
+                            return 1
+                        fi
+                    fi
+                    return 0
+                fi
+            fi
+            return 1
+        else
+            yad --error --text="Error: $ERR_MSG\nNo compatible package manager found."
+            return 1
+        fi
+    fi
+}
+
+check_and_install "yad" "yad" || exit 1
+check_and_install "ffprobe" "ffmpeg" "ffprobe -version" || exit 1
+check_and_install "HandBrakeCLI" "handbrake-cli" "HandBrakeCLI --version" || exit 1
+check_and_install "stdbuf" "coreutils" || exit 1
+check_and_install "pkill" "procps" || exit 1
+
+# ----------------------------------------------------------------------------
+# Settings Persistence
+# ----------------------------------------------------------------------------
+CONFIG_DIR="$HOME/.config"
+DEFAULT_CONFIG="$CONFIG_DIR/vconv.conf"
+mkdir -p "$CONFIG_DIR"
+
+load_defaults() {
+    VIDEO_ENCODER="nvenc_h265"
+    VIDEO_QUALITY="27"
+    AUDIO_ENCODER="copy"
+    AUDIO_BITRATE="128"
+    RESOLUTION="Source"
+    KEEP_SOURCE="TRUE"
+    DELETE_SMALLER="TRUE"
+    TARGET_OUTPUT_DIR=""
+    OP_MODE="Drag & Drop (Convert)"
+}
+
+load_settings() {
+    local PATH="$1"
+    if [ -f "$PATH" ]; then
+        log_debug "Loading settings from: $PATH"
+        source "$PATH"
+    else
+        log_debug "Settings file not found ($PATH), loading defaults."
+        load_defaults
+    fi
+    # Defaults and Cleanups
+    : ${VIDEO_ENCODER:="nvenc_h265"}
+    : ${VIDEO_QUALITY:="27"}
+    : ${AUDIO_ENCODER:="copy"}
+    : ${AUDIO_BITRATE:="128"}
+    : ${RESOLUTION:="Source"}
+    : ${KEEP_SOURCE:="TRUE"}
+    : ${DELETE_SMALLER:="TRUE"}
+    : ${TARGET_OUTPUT_DIR:=""}
+    : ${OP_MODE:="Drag & Drop (Convert)"}
+    
+    OP_MODE="${OP_MODE%|}"
+}
+
+str_settings() {
+    echo "V_ENC=$VIDEO_ENCODER, V_Q=$VIDEO_QUALITY, A_ENC=$AUDIO_ENCODER, A_BIT=$AUDIO_BITRATE, RES=$RESOLUTION"
+}
+
+save_settings() {
+    local TARGET_PATH="$1"
+    local TMP_PATH="${TARGET_PATH}.tmp"
+    
+    OP_MODE="${OP_MODE%|}"
+    
+    log_debug "Saving settings to $TARGET_PATH (via $TMP_PATH)"
+    log_debug "Values: $(str_settings)"
+    
+    # Write to tmp file (atomic write)
+    {
+        echo "VIDEO_ENCODER=\"$VIDEO_ENCODER\""
+        echo "VIDEO_QUALITY=\"$VIDEO_QUALITY\""
+        echo "AUDIO_ENCODER=\"$AUDIO_ENCODER\""
+        echo "AUDIO_BITRATE=\"$AUDIO_BITRATE\""
+        echo "RESOLUTION=\"$RESOLUTION\""
+        echo "KEEP_SOURCE=\"$KEEP_SOURCE\""
+        echo "DELETE_SMALLER=\"$DELETE_SMALLER\""
+        echo "TARGET_OUTPUT_DIR=\"$TARGET_OUTPUT_DIR\""
+        echo "OP_MODE=\"$OP_MODE\""
+    } > "$TMP_PATH"
+    
+    # Check size
+    if [ -s "$TMP_PATH" ]; then
+        mv -f "$TMP_PATH" "$TARGET_PATH"
+        log_debug "Save successful."
+    else
+        log_debug "ERROR: TMP file is 0 bytes! Write failed."
+        rm -f "$TMP_PATH"
+        yad --error --text="Error: Failed to write settings file (0 bytes)."
+    fi
+}
+
+prepare_combo() {
+    local LIST="$1"
+    local VAL="$2"
+    if [[ "$LIST" == "$VAL"* ]]; then
+        echo "^$LIST"
+    else
+        echo "${LIST/!$VAL/!^$VAL}"
+    fi
+}
+
+# ----------------------------------------------------------------------------
+# Cleanup + Utils
+# ----------------------------------------------------------------------------
+cleanup() {
+    log_debug "Global cleanup triggered."
+    pkill -TERM -f "HandBrakeCLI" 2>/dev/null  
+    [ -n "$YAD_PID" ] && kill "$YAD_PID" 2>/dev/null
+    rm -f "$PIPE" "$JOB_LOG" "$FILE_LIST"
+}
+trap cleanup EXIT INT TERM
+
+normalize_path() {
+    local RAW="$1"
+    RAW="$(echo -e "${RAW}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+    if [[ "$RAW" == file://* ]]; then
+        export RAW_URI="${RAW#file://}"
+        python3 -c "import sys, os, urllib.parse; print(urllib.parse.unquote(os.environ['RAW_URI']))"
+    else
+        echo "$RAW"
+    fi
+}
+
+find_files() {
+    local P="$1"
+    if [ -d "$P" ]; then
+        find "$P" -type f \( -iname "*.mkv" -o -iname "*.mp4" -o -iname "*.avi" -o -iname "*.mov" \)
+    elif [ -f "$P" ]; then
+        echo "$P"
+    fi
+}
+
+# ----------------------------------------------------------------------------
+# Logic: Analysis / Process
+# ----------------------------------------------------------------------------
+get_probe_val() {
+    local FILE="$1"
+    local SELECTOR="$2"
+    local STREAM_SPEC="$3"
+    local RESULT=$(ffprobe -v error -select_streams "$STREAM_SPEC" -show_entries "$SELECTOR" -of default=noprint_wrappers=1:nokey=1 "$FILE" 2>>"$LOGFILE_DEBUG")
+    echo "$RESULT"
+}
+
+analyze_file() {
+    local INPUT_FILE="$1"
+    if [ ! -f "$INPUT_FILE" ]; then return 1; fi
+    local BASENAME=$(basename "$INPUT_FILE")
+    local SIZE=$(du -h "$INPUT_FILE" | cut -f1)
+    
+    if ! ffprobe -version &>/dev/null; then
+        echo -e "$BASENAME\nError\nN/A\nN/A\nN/A\nN/A\n$SIZE"; return
+    fi
+    local V_CODEC=$(get_probe_val "$INPUT_FILE" "stream=codec_name" "v:0"); [ -z "$V_CODEC" ] && V_CODEC="N/A"
+    local WIDTH=$(get_probe_val "$INPUT_FILE" "stream=width" "v:0")
+    local HEIGHT=$(get_probe_val "$INPUT_FILE" "stream=height" "v:0")
+    local RES="N/A"; if [ -n "$WIDTH" ] && [ -n "$HEIGHT" ]; then RES="${WIDTH}x${HEIGHT}"; fi
+    local RAW_BR=$(get_probe_val "$INPUT_FILE" "stream=bit_rate" "v:0")
+    if [[ ! "$RAW_BR" =~ ^[0-9]+$ ]]; then RAW_BR=$(ffprobe -v error -show_entries format=bit_rate -of default=noprint_wrappers=1:nokey=1 "$INPUT_FILE" 2>>"$LOGFILE_DEBUG"); fi
+    local BITRATE="N/A"; if [[ "$RAW_BR" =~ ^[0-9]+$ ]]; then BITRATE=$(awk "BEGIN {printf \"%.0f k\", $RAW_BR/1000}"); fi
+    local A_CODEC=$(get_probe_val "$INPUT_FILE" "stream=codec_name" "a:0"); [ -z "$A_CODEC" ] && A_CODEC="N/A"
+    local RAW_ABR=$(get_probe_val "$INPUT_FILE" "stream=bit_rate" "a:0")
+    local AUDIO_BR="N/A"; if [[ "$RAW_ABR" =~ ^[0-9]+$ ]]; then AUDIO_BR=$(awk "BEGIN {printf \"%.0f k\", $RAW_ABR/1000}"); fi
+    echo "$BASENAME"; echo "$V_CODEC"; echo "$BITRATE"; echo "$A_CODEC"; echo "$AUDIO_BR"; echo "$RES"; echo "$SIZE"
+}
+
+process_file() {
+    local INPUT_FILE="$1"
+    if [ ! -f "$INPUT_FILE" ]; then return 1; fi
+    local BASENAME=$(basename "$INPUT_FILE")
+    local FILENAME="${BASENAME%.*}"
+    local OUTPUT_FILE
+    if [ -n "$TARGET_OUTPUT_DIR" ] && [ -d "$TARGET_OUTPUT_DIR" ]; then OUTPUT_FILE="$TARGET_OUTPUT_DIR/${FILENAME}.mp4";
+    else local DIRNAME=$(dirname "$INPUT_FILE"); OUTPUT_FILE="$DIRNAME/${FILENAME}.mp4"; fi
+    if [ "$INPUT_FILE" == "$OUTPUT_FILE" ]; then OUTPUT_FILE="${OUTPUT_FILE%.mp4}_converted.mp4"; fi
+    
+    # HandBrakeCLI < /dev/null ensures it doesn't eat stdin
+    local CMD="stdbuf -oL -eL HandBrakeCLI -i \"$INPUT_FILE\" -o \"$OUTPUT_FILE\" \
+        --encoder \"$VIDEO_ENCODER\" --quality \"$VIDEO_QUALITY\" \
+        $AUDIO_ENCODER_OPT $AUDIO_BITRATE_OPT $RESOLUTION_OPT \
+        --all-audio --all-subtitles \
+        -x cabac=1:ref=5:analyse=0x133:me=umh:subme=9:chroma-me=1:deadzone-inter=21:deadzone-intra=11:b-adapt=2:rc-lookahead=60:vbv-maxrate=10000:vbv-bufsize=10000:qpmax=69:bframes=5:b-adapt=2:direct=auto < /dev/null"
+
+    JOB_LOG=$(mktemp)
+    eval "$CMD" > "$JOB_LOG" 2>&1 &
+    REAL_HB_PID=$!
+    trap "kill $REAL_HB_PID 2>/dev/null; rm -f '$JOB_LOG'" EXIT INT TERM
+    
+    local LAST_PERCENT=-1
+    while kill -0 $REAL_HB_PID 2>/dev/null; do
+        local PERCENT=$(tail -c 200 "$JOB_LOG" | tr '\r' '\n' | grep -oP '(?<=Encoding: task 1 of 1, ).*?(?= %)' | tail -n 1)
+        if [ -n "$PERCENT" ]; then
+            local INT_PERCENT=${PERCENT%.*}
+            if [ "$INT_PERCENT" != "$LAST_PERCENT" ]; then
+                echo "$PERCENT"
+                echo "# Converting $BASENAME: $PERCENT%"
+                LAST_PERCENT=$INT_PERCENT
+            fi
+        fi
+        sleep 1
+    done
+    wait $REAL_HB_PID
+    local EXIT_CODE=$?
+    rm -f "$JOB_LOG"
+    if [ $EXIT_CODE -ne 0 ]; then return 1; fi
+}
+export -f process_file analyze_file normalize_path log_debug get_probe_val find_files
+
+# ----------------------------------------------------------------------------
+# MAIN LOOP
+# ----------------------------------------------------------------------------
+load_settings "$DEFAULT_CONFIG"
+
+while true; do
+    L_VENC=$(prepare_combo "nvenc_h265!x264!x265!nvenc_h264" "$VIDEO_ENCODER")
+    L_AENC=$(prepare_combo "copy!aac!ac3!flac" "$AUDIO_ENCODER")
+    L_ABIT=$(prepare_combo "128!64!96!160!192!256!320" "$AUDIO_BITRATE")
+    L_RES=$(prepare_combo "Source!1080p!720p!480p!360p" "$RESOLUTION")
+    L_MODE=$(prepare_combo "Drag & Drop (Convert)!Recursive Scan (Convert)!Recursive Scan (Analyze)" "$OP_MODE")
+    L_ACTION="^Start Processing!Save Settings...!Load Settings...!Reset Defaults"
+
+    SETTINGS=$(yad --form --title="Video Converter Settings v7.5" \
+        --text="Configure parameters:" \
+        --center --width=500 \
+        --field="Video Encoder:CB" "$L_VENC" \
+        --field="Video Quality (RF):NUM" "$VIDEO_QUALITY!0..51!1" \
+        --field="Audio Encoder:CB" "$L_AENC" \
+        --field="Audio Bitrate:CB" "$L_ABIT" \
+        --field="Resolution:CB" "$L_RES" \
+        --field="Keep Source:CHK" "$KEEP_SOURCE" \
+        --field="Delete Source if Smaller:CHK" "$DELETE_SMALLER" \
+        --field="Output Dir:DIR" "$TARGET_OUTPUT_DIR" \
+        --field="Mode:CB" "$L_MODE" \
+        --field="Action:CB" "$L_ACTION" \
+        --button="Exit:1" --button="Execute:0" --separator="|")
+
+    if [ $? -ne 0 ]; then exit 0; fi
+    if [ -z "$SETTINGS" ]; then continue; fi
+
+    IFS='|' read -r VIDEO_ENCODER VIDEO_QUALITY AUDIO_ENCODER AUDIO_BITRATE RESOLUTION KEEP_SOURCE DELETE_SMALLER TARGET_OUTPUT_DIR OP_MODE ACTION _JUNK <<< "$SETTINGS"
+    OP_MODE="${OP_MODE%|}"
+    ACTION="${ACTION%|}"
+    log_debug "Action selected: $ACTION"
+
+    case "$ACTION" in
+        "Save Settings...")
+            # Use PWD explicitly
+            SAVE_PATH=$(yad --file --save --title="Save Settings As" --filename="$(pwd)/vconv.conf" --file-filter="Config | *.conf")
+            if [ -n "$SAVE_PATH" ]; then
+                if [[ "$SAVE_PATH" != *.conf ]]; then SAVE_PATH="${SAVE_PATH}.conf"; fi
+                save_settings "$SAVE_PATH"
+                yad --info --text="Settings saved!" --timeout=1
+            fi
+            continue
+            ;;
+        "Load Settings...")
+            LOAD_PATH=$(yad --file --title="Load Settings" --file-filter="Config | *.conf")
+            if [ -f "$LOAD_PATH" ]; then
+                load_settings "$LOAD_PATH"
+                yad --info --text="Settings loaded!" --timeout=1
+            fi
+            continue
+            ;;
+        "Reset Defaults")
+            load_defaults
+            rm -f "$DEFAULT_CONFIG"
+            yad --info --text="Reset to defaults." --timeout=1
+            continue
+            ;;
+        "Start Processing"|*) ;;
+    esac
+    save_settings "$DEFAULT_CONFIG"
+
+    if [ "$AUDIO_ENCODER" == "copy" ]; then AUDIO_ENCODER_OPT="--aencoder copy"; AUDIO_BITRATE_OPT="";
+    else AUDIO_ENCODER_OPT="--aencoder $AUDIO_ENCODER"; AUDIO_BITRATE_OPT="--ab $AUDIO_BITRATE"; fi
+    if [ "$RESOLUTION" == "Source" ]; then RESOLUTION_OPT=""; else
+        case "$RESOLUTION" in
+            "1080p") RESOLUTION_OPT="--width 1920 --height 1080" ;;
+            "720p")  RESOLUTION_OPT="--width 1280 --height 720" ;;
+            "480p")  RESOLUTION_OPT="--width 854 --height 480" ;;
+            "360p")  RESOLUTION_OPT="--width 640 --height 360" ;;
+            *)       RESOLUTION_OPT="" ;;
+        esac
+    fi
+    export VIDEO_ENCODER VIDEO_QUALITY AUDIO_ENCODER_OPT AUDIO_BITRATE_OPT RESOLUTION_OPT KEEP_SOURCE DELETE_SMALLER TARGET_OUTPUT_DIR
+
+    PIPE=$(mktemp -u)
+    mkfifo "$PIPE"
+    exec 3<> "$PIPE"
+    
+    if [ "$OP_MODE" == "Recursive Scan (Convert)" ]; then
+        # 1. Load into Array (Completely removing pipeline dependency)
+        FILES_ARRAY=()
+        while IFS= read -r -d '' F; do
+            FILES_ARRAY+=("$F")
+        done < <(find . -type f \( -iname "*.mkv" -o -iname "*.mp4" -o -iname "*.avi" -o -iname "*.mov" \) -print0)
+        
+        # 2. Iterate Array
+        log_debug "Recursive Scan found ${#FILES_ARRAY[@]} files."
+        
+        for FILE in "${FILES_ARRAY[@]}"; do
+             CLEAN_FILE="${FILE#./}"
+             log_debug "Processing: $CLEAN_FILE"
+             
+             ( trap '' EXIT; process_file "$(readlink -f "$FILE")" ) | \
+                yad --progress --title="Converting..." --text="$CLEAN_FILE" --percentage=0 --auto-close --auto-kill --button="Stop:1" --button="Stop All:252"
+             
+             RET_CODE=$?
+             if [ $RET_CODE -eq 252 ]; then 
+                pkill -P $$ 2>/dev/null; exit 252; 
+             fi
+             sleep 2
+        done
+
+    elif [ "$OP_MODE" == "Drag & Drop (Convert)" ]; then
+        while read -r FILEPATH; do
+             if [ -n "$FILEPATH" ]; then
+                echo "$FILEPATH" | tr '\r' '\n' | while read -r P; do
+                     find_files "$(normalize_path "$P")" | while read -r TFILE; do
+                         ( trap '' EXIT; process_file "$TFILE" ) | yad --progress --title="Converting..." --text="$(basename "$TFILE")" --percentage=0 --auto-close --auto-kill
+                         sleep 1
+                     done
+                done
+             fi
+        done < <(stdbuf -i0 -o0 -e0 yad --dnd --title="Drop to Convert" --text="Drop files here..." --width=600 --height=200 --button="Back:1")
+
+    elif [ "$OP_MODE" == "Recursive Scan (Analyze)" ]; then
+        (
+            find . -type f \( -iname "*.mkv" -o -iname "*.mp4" -o -iname "*.avi" -o -iname "*.mov" \) -print0 | \
+            while IFS= read -r -d '' FILE; do analyze_file "$(readlink -f "$FILE")"; done
+        ) | yad --list --title="Analysis Results" --width=1100 --height=600 \
+            --column="File" --column="Video Codec" --column="Bitrate" --column="Audio Codec" --column="Audio Bitrate" --column="Resolution" --column="Size" \
+            --button="Back to Menu:0"
+    fi
+    rm -f "$PIPE"
+done

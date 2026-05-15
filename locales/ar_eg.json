@@ -1,0 +1,115 @@
+{
+  "app": {
+    "title": "vconv - محول الفيديو",
+    "version": "الإصدار",
+    "description": "تطبيق تحويل فيديو حديث يعمل بـ HandBrakeCLI"
+  },
+  "menu": {
+    "file": "ملف",
+    "add_files": "إضافة ملفات",
+    "add_folder": "إضافة مجلد",
+    "settings": "الإعدادات",
+    "exit": "خروج",
+    "help": "مساعدة",
+    "about": "حول",
+    "documentation": "التوثيق"
+  },
+  "tabs": {
+    "convert": "تحويل",
+    "analyze": "تحليل",
+    "presets": "الإعدادات الجاهزة",
+    "queue": "قائمة الانتظار"
+  },
+  "encoder": {
+    "title": "مشفر الفيديو",
+    "auto_detect": "اكتشاف تلقائي",
+    "recommended": "موصى بيه",
+    "nvenc_h265": "NVIDIA HEVC (NVENC)",
+    "nvenc_h264": "NVIDIA H.264 (NVENC)",
+    "qsv_h265": "Intel HEVC (Quick Sync)",
+    "qsv_h264": "Intel H.264 (Quick Sync)",
+    "amf_h265": "AMD HEVC (AMF)",
+    "amf_h264": "AMD H.264 (AMF)",
+    "x265": "x265 (CPU)",
+    "x264": "x264 (CPU)",
+    "libsvtav1": "SVT-AV1 (CPU)"
+  },
+  "quality": {
+    "title": "الجودة",
+    "rf": "قيمة RF",
+    "preset": "إعداد الترميز"
+  },
+  "audio": {
+    "title": "الصوت",
+    "encoder": "المشفر",
+    "bitrate": "معدل البت",
+    "channels": "القنوات"
+  },
+  "output": {
+    "title": "المخرجات",
+    "format": "التنسيق",
+    "location": "الموقع",
+    "same_as_source": "نفس المصدر",
+    "conflict": "حل التعارض",
+    "ask": "اسأل",
+    "overwrite": "استبدل",
+    "rename": "إعادة تسمية تلقائية"
+  },
+  "actions": {
+    "convert": "حوّل",
+    "analyze": "حلّل",
+    "check_all": "افحص الكل",
+    "start_batch": "ابدأ الدفعة",
+    "cancel": "إلغاء",
+    "cancel_all": "إلغاء الكل",
+    "clear": "مسح",
+    "save": "حفظ",
+    "load": "تحميل",
+    "reset": "إعادة تعيين"
+  },
+  "status": {
+    "ready": "جاهز",
+    "processing": "بيشتغل",
+    "completed": "مكتمل",
+    "failed": "فشل",
+    "cancelled": "ملغى",
+    "gpu_detected": "لقينا GPU",
+    "no_gpu": "CPU بس",
+    "files_loaded": "الفيلات اتحملت",
+    "queue_items": "عناصر في القائمة"
+  },
+  "messages": {
+    "drop_files": "اسحب الفيديهات هنا أو اضغط عشان تختار",
+    "drop_folder": "اسحب مجلد عشان نبحث في المجلدات الفرعية",
+    "no_files": "مفيش ملفات فيديو",
+    "validation_passed": "كل الملفات تمام",
+    "validation_failed": "في مشاكل في بعض الملفات",
+    "conversion_complete": "التحويل خلص",
+    "conversion_failed": "التحويل فشل",
+    "install_deps": "تثبيت المتطلبات المطلوبة؟",
+    "dependencies_missing": "المتطلبات المفقودة",
+    "installing": "بيثبت...",
+    "install_success": "التثبيت نجح",
+    "install_failed": "التثبيت فشل"
+  },
+  "dialogs": {
+    "confirm_overwrite": "الملف موجود. تستبدله؟",
+    "confirm_cancel": "إلغاء العملية؟",
+    "confirm_exit": "متأكد تخرج؟",
+    "save_preset": "حفظ الإعداد",
+    "preset_name": "اسم الإعداد",
+    "select_output_dir": "اختر مجلد المخرجات"
+  },
+  "filters": {
+    "denoise": "إزالة ضوضاء",
+    "deinterlace": "إلغاء تشابك",
+    "crop": "قص/تصغير",
+    "rotate": "تدوير"
+  },
+  "subtitles": {
+    "title": "الترجمات",
+    "track": "المسار",
+    "burn_in": "حرق في الفيديو",
+    "external": "ملف SRT خارجي"
+  }
+}

@@ -1,0 +1,309 @@
+#!/bin/bash
+
+# ----------------------------------------------------------------------------
+# Check if HandBrakeCLI and ffprobe are available.
+# ----------------------------------------------------------------------------
+if ! command -v HandBrakeCLI &> /dev/null; then
+    echo "HandBrakeCLI could not be found. Attempting to install..."
+    sudo apt-get update && sudo apt-get install -y handbrake-cli
+    if ! command -v HandBrakeCLI &> /dev/null; then
+        echo "HandBrakeCLI installation failed. Please install it manually."
+        exit 1
+    fi
+fi
+
+if ! command -v ffprobe &> /dev/null; then
+    echo "ffprobe could not be found. Attempting to install..."
+    sudo apt-get update && sudo apt-get install -y ffmpeg
+    if ! command -v ffprobe &> /dev/null; then
+        echo "ffprobe installation failed. Please install it manually."
+        exit 1
+    fi
+fi
+
+HANDBRAKE="HandBrakeCLI"
+FFPROBE="ffprobe"
+
+if ! command -v jq &> /dev/null; then
+    echo "jq could not be found. Attempting to install..."
+    sudo apt-get update && sudo apt-get install -y jq
+    if ! command -v jq &> /dev/null; then
+        echo "jq installation failed. Please install it manually."
+        exit 1
+    fi
+fi
+
+# ----------------------------------------------------------------------------
+# Use ffprobe to list audio tracks for all video files in the folder and subfolders.
+# ----------------------------------------------------------------------------
+echo "Scanning for video files and their audio tracks..."
+find . -mindepth 1 -type f \( -iname "*.mkv" -o -iname "*.mp4" -o -iname "*.avi" -o -iname "*.mov" \) -print0 | while IFS= read -r -d $'/0' file; do
+    if [ -f "$file" ]; then
+        echo "Processing file: \"$file\""
+        echo "-----------------------------------------"
+        "$FFPROBE" -v quiet -print_format json -show_streams "$file" > temp.json
+        jq -r '.streams[] | select(.codec_type=="audio") | "Audio Track: \\(.index) - \\(.tags.title // \"N/A\") (\\(.channels // 0) Channels)"' temp.json
+        rm temp.json
+        echo "-----------------------------------------"
+    fi
+done
+echo "Audio track scanning completed. Proceeding with encoding..."
+
+# ----------------------------------------------------------------------------
+# Create log files if they don't exist.
+# ----------------------------------------------------------------------------
+mkdir -p logs
+[ -f log.txt ] || echo "Log file for HandBrakeCLI batch script" > log.txt
+[ -f error_log.txt ] || echo "Error log for HandBrakeCLI batch script" > error_log.txt
+
+# ----------------------------------------------------------------------------
+# Configuration and User Input
+# ----------------------------------------------------------------------------
+
+# Function to get user input
+get_user_input() {
+    # Detect available encoders
+    echo "Detecting available HandBrakeCLI encoders..."
+    ENCODERS=$(HandBrakeCLI --help | grep -A 20 "--encoder" | grep -B 20 "Audio Options" | sed -n '/Select video encoder:/,/--encoder-preset/p' | grep -v "Select video encoder:" | grep -v "--encoder-preset" | awk '{print $1}')
+    echo "Available encoders:"
+    echo "$ENCODERS"
+    echo "-----------------------------------------"
+
+    read -p "Enter video encoder to use (default nvenc_h265): " VIDEO_ENCODER
+    VIDEO_ENCODER=${VIDEO_ENCODER:-nvenc_h265}
+
+    read -p "Enter audio track index (or comma-separated list of indexes) to process for all files (leave empty for all tracks): " AUDIO_TRACKS
+
+    read -p "Enter video quality (default 27, press Enter to use default): " QUALITY
+    QUALITY=${QUALITY:-27}
+
+    read -p "Enter audio encoder (default copy for pass-through or enter aac): " AUDIO_ENCODER
+    AUDIO_ENCODER=${AUDIO_ENCODER:-copy}
+
+    if [ "$AUDIO_ENCODER" == "aac" ]; then
+        read -p "Enter audio bitrate (e.g., 64, 96, 128, press Enter for default 128): " AUDIO_BITRATE
+        AUDIO_BITRATE=${AUDIO_BITRATE:-128k}
+    else
+        AUDIO_BITRATE="copy"
+    fi
+
+    read -p "Enter resolution (e.g., 360p, 480p, 720p, 1080p) or press Enter for source resolution: " RESOLUTION
+    if [ -n "$RESOLUTION" ] && [[ ! "$RESOLUTION" =~ p$ ]]; then
+        RESOLUTION="${RESOLUTION}p"
+    fi
+
+    read -p "Enter preset file path (press Enter if not used): " PRESET_FILE
+    read -p "Enter output directory (press Enter for current directory or source folder): " OUTPUT_DIR
+
+    read -p "Enter subtitle preferences (e.g., '1,2' for specific tracks, 'eng' for English, or press Enter for all): " SUBTITLE_CHOICE
+
+    read -p "If the output file is larger than the source file, should the source file be retained? (y/n, default=y): " KEEP_SOURCE
+    KEEP_SOURCE=${KEEP_SOURCE:-y}
+
+    read -p "If the output file is smaller than the source file, should the source file be deleted? (y/n, default=y): " DELETE_SMALLER
+    DELETE_SMALLER=${DELETE_SMALLER:-y}
+}
+
+# Load settings from config file if it exists
+if [ -f "convert.conf" ]; then
+    echo "Loading settings from convert.conf"
+    source "convert.conf"
+fi
+
+# Parse command-line options
+OPTS=$(getopt -o f,h,j: --long force,help,jobs:,video-encoder:,audio-tracks:,quality:,audio-encoder:,audio-bitrate:,resolution:,preset-file:,output-dir:,subtitle-choice:,keep-source:,delete-smaller:,edit-config,set: -n "convert.sh" -- "$@")
+if [ $? != 0 ] ; then echo "Failed parsing options." >&2 ; exit 1 ; fi
+eval set -- "$OPTS"
+
+while true; do
+    case "$1" in
+        -f | --force )
+            FORCE_PROMPT=true; shift ;;
+        -h | --help )
+            echo "Usage: ./convert.sh [options]"
+            echo "Options:";
+            echo "  -f, --force                  Force prompt for all settings, ignoring config file.";
+            echo "  -j, --jobs <num>             Number of parallel jobs to run. Defaults to the number of CPU cores.";
+            echo "  --edit-config                Open the configuration file in the default editor."
+            echo "  --set <key>=<value>          Set a specific configuration value."
+            echo "  --video-encoder <encoder>  Set the video encoder.";
+            echo "  --audio-tracks <tracks>    Set the audio tracks.";
+            echo "  --quality <quality>        Set the video quality.";
+            echo "  --audio-encoder <encoder>  Set the audio encoder.";
+            echo "  --audio-bitrate <bitrate>  Set the audio bitrate.";
+            echo "  --resolution <resolution>  Set the resolution.";
+            echo "  --preset-file <path>       Set the preset file path.";
+            echo "  --output-dir <dir>         Set the output directory.";
+            echo "  --subtitle-choice <choice> Set the subtitle preferences.";
+            echo "  --keep-source <y/n>        Set whether to keep the source file if the output is larger.";
+            echo "  --delete-smaller <y/n>     Set whether to delete the source file if the output is smaller.";
+            exit 0;;
+        -j | --jobs )
+            JOBS="$2"; shift 2 ;;
+        --video-encoder )
+            VIDEO_ENCODER="$2"; shift 2 ;;
+        --audio-tracks )
+            AUDIO_TRACKS="$2"; shift 2 ;;
+        --quality )
+            QUALITY="$2"; shift 2 ;;
+        --audio-encoder )
+            AUDIO_ENCODER="$2"; shift 2 ;;
+        --audio-bitrate )
+            AUDIO_BITRATE="$2"; shift 2 ;;
+        --resolution )
+            RESOLUTION="$2"; shift 2 ;;
+        --preset-file )
+            PRESET_FILE="$2"; shift 2 ;;
+        --output-dir )
+            OUTPUT_DIR="$2"; shift 2 ;;
+        --subtitle-choice )
+            SUBTITLE_CHOICE="$2"; shift 2 ;;
+        --keep-source )
+            KEEP_SOURCE="$2"; shift 2 ;;
+        --delete-smaller )
+            DELETE_SMALLER="$2"; shift 2 ;;
+        --edit-config )
+            if [ -n "$EDITOR" ]; then
+                "$EDITOR" "convert.conf"
+            elif command -v nano &> /dev/null; then
+                nano "convert.conf"
+            elif command -v vi &> /dev/null; then
+                vi "convert.conf"
+            else
+                echo "No suitable text editor found. Please set the EDITOR environment variable."
+            fi
+            exit 0;;
+        --set )
+            KEY=$(echo "$2" | cut -d '=' -f 1)
+            VALUE=$(echo "$2" | cut -d '=' -f 2)
+            sed -i "s/^$KEY=.*/$KEY=$VALUE/" "convert.conf"
+            echo "Set $KEY to $VALUE in convert.conf"
+            exit 0;;
+        -- )
+            shift; break ;;
+        * )
+            break ;;
+    esac
+done
+
+# Set default number of jobs to number of CPU cores if not specified
+if [ -z "$JOBS" ]; then
+    JOBS=$(nproc)
+fi
+
+# If force flag is set, or if config file does not exist, prompt for input
+if [ "$FORCE_PROMPT" = true ] || [ ! -f "convert.conf" ]; then
+    get_user_input
+fi
+
+
+
+# ----------------------------------------------------------------------------
+# Process each file.
+# ----------------------------------------------------------------------------
+
+process_file() {
+    INPUTFILE="$1"
+    # Check if the file has already been converted successfully
+    if grep -q "Successfully encoded \"$INPUTFILE\"" log.txt; then
+        echo "Skipping already converted file: $INPUTFILE"
+        return
+    fi
+    # Set audio track options.
+    if [ -z "$AUDIO_TRACKS" ]; then
+        AUDIO_OPTS="--all-audio"
+    else
+        AUDIO_OPTS=""
+        IFS=',' read -ra ADDR <<< "$AUDIO_TRACKS"
+        for t in "${ADDR[@]}"; do
+            AUDIO_OPTS="$AUDIO_OPTS --audio=$t"
+        done
+    fi
+
+    if [ "$AUDIO_ENCODER" == "aac" ]; then
+        AUDIO_OPTS="$AUDIO_OPTS --aencoder $AUDIO_ENCODER --ab $AUDIO_BITRATE"
+    else
+        AUDIO_OPTS="$AUDIO_OPTS --aencoder copy"
+    fi
+    # Set subtitle options based on user input.
+    case "$SUBTITLE_CHOICE" in
+        "" ) 
+            SUBTITLE_OPTS="--all-subtitles"
+            ;; 
+        # Check if the input is purely numeric or a comma-separated list of numbers
+        *[!0-9,]*) 
+            # Assumed to be a language code
+            SUBTITLE_OPTS="--subtitle-lang-list "$SUBTITLE_CHOICE""
+            ;; 
+        *)
+            # Assumed to be a comma-separated list of track indexes
+            SUBTITLE_OPTS="--subtitle "$SUBTITLE_CHOICE""
+            ;; 
+    esac
+
+    case "$RESOLUTION" in
+        "1080p") RESOLUTION_OPTS="--width 1920 --height 1080" ;; 
+        "720p")  RESOLUTION_OPTS="--width 1280 --height 720" ;; 
+        "480p")  RESOLUTION_OPTS="--width 854 --height 480" ;; 
+        "360p")  RESOLUTION_OPTS="--width 640 --height 360" ;; 
+        *)       RESOLUTION_OPTS="" ;; 
+    esac
+
+    if [ -n "$PRESET_FILE" ]; then
+        PRESET_OPTS="--preset-import-file "$PRESET_FILE""
+    else
+        PRESET_OPTS=""
+    fi
+
+    if [ -z "$OUTPUT_DIR" ]; then
+        OUTPUTFILE="${INPUTFILE%.*}.mp4"
+    else
+        mkdir -p "$OUTPUT_DIR"
+        OUTPUTFILE="$OUTPUT_DIR/$(basename "${INPUTFILE%.*}").mp4"
+    fi
+
+    # Check for existing file and rename if necessary
+    FINAL_OUTPUTFILE="$OUTPUTFILE"
+    COUNTER=1
+    while [ -f "$FINAL_OUTPUTFILE" ]; do
+        FINAL_OUTPUTFILE="${OUTPUTFILE%.mp4}_${COUNTER}.mp4"
+        let COUNTER=COUNTER+1
+    done
+
+    # Debug: Show input and output paths
+    echo "Input: "$INPUTFILE""
+    echo "Output: "$FINAL_OUTPUTFILE""
+
+    # Use delayed expansion for the input file
+    "$HANDBRAKE" --verbose -i "$INPUTFILE" -o "$FINAL_OUTPUTFILE" --encoder "$VIDEO_ENCODER" --quality "$QUALITY" $AUDIO_OPTS $SUBTITLE_OPTS $RESOLUTION_OPTS $PRESET_OPTS -x cabac=1:ref=5:analyse=0x133:me=umh:subme=9:chroma-me=1:deadzone-inter=21:deadzone-intra=11:b-adapt=2:rc-lookahead=60:vbv-maxrate=10000:vbv-bufsize=10000:qpmax=69:bframes=5:b-adapt=2:direct=auto < /dev/null
+
+    if [ $? -eq 0 ]; then
+        OUTPUTSIZE=$(stat -c%s "$FINAL_OUTPUTFILE")
+        INPUTSIZE=$(stat -c%s "$INPUTFILE")
+        if [ $OUTPUTSIZE -lt $INPUTSIZE ]; then
+            if [ "$DELETE_SMALLER" == "y" ]; then
+                rm "$INPUTFILE"
+                echo "Successfully encoded \"$INPUTFILE\" to \"$FINAL_OUTPUTFILE\" and deleted the source file. Input file size: $INPUTSIZE bytes. Output file size: $OUTPUTSIZE bytes." >> log.txt
+            else
+                echo "Successfully encoded \"$INPUTFILE\" to \"$FINAL_OUTPUTFILE\" and kept the source file. Input file size: $INPUTSIZE bytes. Output file size: $OUTPUTSIZE bytes." >> log.txt
+            fi
+        else
+            if [ "$KEEP_SOURCE" == "y" ]; then
+                echo "Successfully encoded \"$INPUTFILE\" to \"$FINAL_OUTPUTFILE\" and kept both files. Input file size: $INPUTSIZE bytes. Output file size: $OUTPUTSIZE bytes." >> log.txt
+            else
+                rm "$INPUTFILE"
+                echo "Successfully encoded \"$INPUTFILE\" to \"$FINAL_OUTPUTFILE\" and deleted the source file. Input file size: $INPUTSIZE bytes. Output file size: $OUTPUTSIZE bytes." >> log.txt
+            fi
+        fi
+    else
+        echo "Error encoding \"$INPUTFILE\" to \"$FINAL_OUTPUTFILE\". Error code: $?" >> log.txt
+        echo "Error encoding \"$INPUTFILE\" to \"$FINAL_OUTPUTFILE\" with error code $?" >> error_log.txt
+    fi
+}
+
+export -f process_file
+export HANDBRAKE VIDEO_ENCODER AUDIO_TRACKS QUALITY AUDIO_ENCODER AUDIO_BITRATE RESOLUTION PRESET_FILE OUTPUT_DIR SUBTITLE_CHOICE KEEP_SOURCE DELETE_SMALLER
+
+find . -type f \( -iname "*.mkv" -o -iname "*.mp4" -o -iname "*.avi" -o -iname "*.mov" \) -print0 | xargs -0 -P "$JOBS" -I {} bash -c 'process_file "{}"'
+
+echo "Conversion finished."
