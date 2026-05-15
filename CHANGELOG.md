@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [8.2.0] - 2026-05-16
+
+### Fixed
+- **Window Position**: Fixed saving using `current_location()` with proper error handling
+- **Popup Position**: Fixed "bad window path name" error by handling closed windows gracefully
+- **Cancel vs Stop All**: Cancel now skips current file and continues; Stop All stops everything
+- **UI State After Conversion**: Properly resets UI when conversion completes
+- **Progress Bar**: Shows both file-level and overall progress
+- **Folder Structure**: Default output preserves folder structure from source
+- **Dynamic Resizing**: Added expand_x/expand_y for proper layout scaling
+- **Subtitle Names**: Analyze now shows subtitle language and title
+- **External Subtitles**: Added option to embed external SRT files
+- **Last Folder Memory**: Fixed folder selection remembering last opened location
+- **Floating Button on Close**: Fixed by using `enable_close_attempted_event`
+
+### Added
+- **External SRT Embedding**: Option to add external subtitle files during conversion
+- **Folder Structure Preservation**: Default output maintains original folder hierarchy
+- **Dump All Option**: Alternative to preserve structure - dump all files to single folder
+- **Quick Access Folders**: Documents, Downloads, Videos, Movies, Desktop shortcuts
+- **Folder Creation**: Create new folders directly in folder browser
+- **Window Move Tracking**: Saves position on window move events
+
+---
+
 ## [8.1.0] - 2026-05-15
 
 ### Fixed
