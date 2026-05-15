@@ -91,6 +91,18 @@ class MainWindow:
         """Setup application theme."""
         sg.theme('DarkBlue13')
 
+    def _save_window_position(self, window):
+        """Save current window position to config."""
+        try:
+            win = window.TKWindow
+            self.window_x = win.winfo_x()
+            self.window_y = win.winfo_y()
+            self.config.set('ui', 'window_x', self.window_x)
+            self.config.set('ui', 'window_y', self.window_y)
+            self.config.save()
+        except Exception as e:
+            pass
+
     def run(self):
         """Run the main window."""
         # Determine initial location
@@ -109,12 +121,16 @@ class MainWindow:
             finalize=True
         )
 
-        # Bind Escape to cancel
+        # Bind Escape to cancel and position tracking
         window.bind('<Escape>', '-CANCEL-')
+        window.bind('Configure', '-WINDOW_MOVED-')  # Track window moves
 
         # Initial state - disable audio bitrate
         window['-AUDIO_BIT-'].update(disabled=True)
         window['-AUDIO_CH-'].update(disabled=True)
+
+        # Save initial position
+        self._save_window_position(window)
 
         while True:
             event, values = window.read()
@@ -323,7 +339,13 @@ class MainWindow:
              sg.Button('Cancel', key='-CANCEL-', size=(10, 1))]
         ]
         
-        popup = sg.Window(title, layout, finalize=True, modal=True, location=(self.window_x + 200, self.window_y + 100))
+        # Calculate popup location - center on screen or use saved position
+        if self.window_x is not None and self.window_y is not None:
+            popup_location = (self.window_x + 200, self.window_y + 100)
+        else:
+            popup_location = None
+        
+        popup = sg.Window(title, layout, finalize=True, modal=True, location=popup_location)
         
         result_folder = None
         
@@ -604,8 +626,16 @@ class MainWindow:
         valid = []
         issues = []
 
+        # Get output settings
+        try:
+            output_custom = window['-OUTPUT_CUSTOM-'].get()
+            output_dir = window['-OUTPUT_DIR-'].get() if output_custom else ''
+        except:
+            output_custom = False
+            output_dir = ''
+
         for f in self.files:
-            output = self._get_output_path(f)
+            output = self._get_output_path(f, output_custom, output_dir)
             result = validator.validate_file(f, output)
             if result.status == 'valid':
                 valid.append(os.path.basename(f))
@@ -619,13 +649,11 @@ class MainWindow:
         else:
             window['-STATUS-'].update(f"✅ All {len(valid)} ready", text_color='#2ECC71')
 
-    def _get_output_path(self, input_file):
+    def _get_output_path(self, input_file, output_custom=False, output_dir=''):
         """Calculate output path based on settings."""
-        if values.get('-OUTPUT_CUSTOM-', False):
-            folder = window['-OUTPUT_DIR-'].get() if 'window' in locals() else self.output_dir
-            if folder and folder != 'source':
-                filename = os.path.basename(input_file)
-                return os.path.join(folder, os.path.splitext(filename)[0] + '.' + self.format)
+        if output_custom and output_dir and output_dir != 'source':
+            filename = os.path.basename(input_file)
+            return os.path.join(output_dir, os.path.splitext(filename)[0] + '.' + self.format)
         return generate_output_path(input_file, format=self.format, conflict_mode='rename')
 
     def _analyze_files(self, window):
