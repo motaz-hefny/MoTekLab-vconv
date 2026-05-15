@@ -132,25 +132,40 @@ class MainWindow:
         # Save initial position
         self._save_window_position(window)
 
+        # Conversion progress tracking
+        conversion_status = {'current': 0, 'total': 0, 'filename': '', 'progress': 0, 'done': False}
+
         while True:
-            event, values = window.read()
+            # Use timeout to allow UI updates during conversion
+            event, values = window.read(timeout=100)  # 100ms timeout for UI responsiveness
+
+            # Handle custom progress update events
+            if event == '-PROGRESS_UPDATE-':
+                window['-STATUS-'].update(values['-STATUS-'])
+                window['-PROGRESS-'].update(values['-PROGRESS-'])
+                continue
 
             if event in (sg.WINDOW_CLOSED, 'Exit'):
                 if self.is_converting:
                     if sg.popup_yes_no('Conversion in progress. Cancel and exit?', location=window.current_location()) == 'Yes':
                         self.cancel_requested = True
                         break
+                # Save window position on close
+                try:
+                    self.window_x = window.TKWindow.winfo_x()
+                    self.window_y = window.TKWindow.winfo_y()
+                    self.config.set('ui', 'window_x', self.window_x)
+                    self.config.set('ui', 'window_y', self.window_y)
+                    self.config.save()
+                except:
+                    pass
                 break
 
             # Save window position on move/resize
             if event == '-WINDOW_MOVED-':
                 try:
-                    win = window.TKWindow
-                    self.window_x = win.winfo_x()
-                    self.window_y = win.winfo_y()
-                    self.config.set('ui', 'window_x', self.window_x)
-                    self.config.set('ui', 'window_y', self.window_y)
-                    self.config.save()
+                    self.window_x = window.TKWindow.winfo_x()
+                    self.window_y = window.TKWindow.winfo_y()
                 except:
                     pass
 
@@ -232,9 +247,33 @@ class MainWindow:
                 self._browse_output_folder(window)
 
             # Settings menu items
-            self._handle_settings_menu(event, window)
+            if event not in (sg.TIMEOUT_EVENT, '-PROGRESS_UPDATE-'):
+                self._handle_settings_menu(event, window)
+
+            # Handle conversion completion
+            if event == '-CONVERSION_DONE-':
+                self.is_converting = False
+                window['-CONVERT-'].update(disabled=False)
+                window['-CANCEL-'].update(disabled=True)
+                window['-STOP_ALL-'].update(disabled=True)
+                window['-PROGRESS-'].update(visible=False)
+                result = values.get('-CONVERSION_DONE-', {})
+                if self.stop_all:
+                    window['-STATUS-'].update(f"⏹️ Stopped: {result.get('success', 0)} done, {result.get('skipped', 0)} skipped, {result.get('failed', 0)} failed", text_color='#F39C12')
+                elif self.cancel_requested:
+                    window['-STATUS-'].update(f"✅ {result.get('success', 0)} done, {result.get('skipped', 0)} skipped, {result.get('failed', 0)} failed", text_color='#2ECC71')
+                else:
+                    window['-STATUS-'].update(f"✅ Complete: {result.get('success', 0)} ok, {result.get('failed', 0)} failed", text_color='#2ECC71')
 
         # Save final position
+        try:
+            self.window_x = window.TKWindow.winfo_x()
+            self.window_y = window.TKWindow.winfo_y()
+            self.config.set('ui', 'window_x', self.window_x)
+            self.config.set('ui', 'window_y', self.window_y)
+            self.config.save()
+        except:
+            pass
         try:
             win = window.TKWindow
             self.config.set('ui', 'window_x', win.winfo_x())
@@ -604,7 +643,7 @@ class MainWindow:
                     sg.popup_ok(f'Added {len(videos)} video files!\n\nUse "Validate" to check before converting.',
                                title='Files Added', location=window.current_location())
                 else:
-                    sg.popup_warning('No video files found', location=window.current_location())
+                    sg.popup_ok('No video files found', title='Warning', location=window.current_location())
         except Exception as e:
             sg.popup_error(f'Error: {e}', location=window.current_location())
 
@@ -659,7 +698,7 @@ class MainWindow:
     def _analyze_files(self, window):
         """Analyze files."""
         if not self.files:
-            sg.popup_warning('No files to analyze', location=window.current_location())
+            sg.popup_ok('No files to analyze', title='Warning', location=window.current_location())
             return
 
         results = []
@@ -753,8 +792,13 @@ class MainWindow:
                 # Just skip current, continue to next
             
             filename = os.path.basename(input_file)
-            window['-STATUS-'].update(f"Processing ({idx+1}/{total}): {filename[:35]}...")
-            window['-PROGRESS-'].update(int((idx / total) * 100))
+            progress_pct = int((idx / total) * 100) if total > 0 else 0
+            
+            # Use write_event_value to communicate from thread to main GUI
+            window.write_event_value('-PROGRESS_UPDATE-', {
+                '-STATUS-': f"Processing ({idx+1}/{total}): {filename[:35]}...",
+                '-PROGRESS-': progress_pct
+            })
 
             if output_base:
                 output_file = os.path.join(output_base, os.path.splitext(filename)[0] + '.' + settings.output_format)
@@ -772,18 +816,14 @@ class MainWindow:
                 print(f"Error: {e}")
                 failed += 1
 
-        self.is_converting = False
-        window['-CONVERT-'].update(disabled=False)
-        window['-CANCEL-'].update(disabled=True)
-        window['-STOP_ALL-'].update(disabled=True)
-        window['-PROGRESS-'].update(visible=False)
-
-        if self.stop_all:
-            window['-STATUS-'].update(f"⏹️ Stopped: {success} done, {skipped} skipped, {failed} failed", text_color='#F39C12')
-        elif self.cancel_requested:
-            window['-STATUS-'].update(f"✅ {success} done, {skipped} skipped, {failed} failed", text_color='#2ECC71')
-        else:
-            window['-STATUS-'].update(f"✅ Complete: {success} ok, {failed} failed", text_color='#2ECC71')
+        # Final update
+        window.write_event_value('-PROGRESS_UPDATE-', {
+            '-STATUS-': f"Done: {success} ok, {failed} failed, {skipped} skipped",
+            '-PROGRESS-': 100
+        })
+        
+        # Mark conversion as complete
+        window.write_event_value('-CONVERSION_DONE-', {'success': success, 'failed': failed, 'skipped': skipped})
 
 
 def launch(config: Config, i18n: I18n, args=None):
