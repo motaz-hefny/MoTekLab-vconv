@@ -1,18 +1,15 @@
-# vconv - Video Converter GUI
+# vconv - Video Converter
 
 <p align="center">
-  <strong>A modern, feature-rich video conversion application powered by HandBrakeCLI</strong>
+  <strong>A modern video conversion tool powered by HandBrakeCLI</strong>
 </p>
 
 <p align="center">
-  <a href="https://github.com/vconv-project/vconv/releases/latest">
-    <img src="https://img.shields.io/github/v/release/vconv-project/vconv?include_prereleases&style=flat" alt="Version">
+  <a href="https://github.com/motaz-hefny/MoTekLab-vconv/releases/latest">
+    <img src="https://img.shields.io/github/v/release/motaz-hefny/MoTekLab-vconv?include_prereleases&style=flat" alt="Version">
   </a>
-  <a href="https://github.com/vconv-project/vconv/blob/main/LICENSE">
-    <img src="https://img.shields.io/github/license/vconv-project/vconv?style=flat" alt="License">
-  </a>
-  <a href="https://github.com/vconv-project/vconv/actions">
-    <img src="https://img.shields.io/github/actions/workflow/status/vconv-project/vconv/build.yml?style=flat" alt="Build">
+  <a href="https://github.com/motaz-hefny/MoTekLab-vconv/blob/main/LICENSE">
+    <img src="https://img.shields.io/github/license/motaz-hefny/MoTekLab-vconv?style=flat" alt="License">
   </a>
 </p>
 
@@ -20,23 +17,16 @@
 
 ## About
 
-**vconv** is a standalone desktop application for video conversion on Linux. Built with Python 3, it provides a polished interface for [HandBrakeCLI](https://handbrake.fr/) with hardware acceleration detection, batch processing, and professional encoding options.
+**vconv** is a CLI-first video converter that scans folders and converts video files in place or to a new location. It's designed to work from any folder containing video files.
 
 ### Key Features
 
-- **CLI-First Design**: Run from any folder to scan and convert video files in place
+- **CLI-First Design**: Run from any folder to scan and convert video files
 - **Smart Scanning**: Automatically finds video files in current directory and subdirectories
 - **Hardware Acceleration**: Auto-detects NVIDIA, Intel, and AMD GPUs
-- **Batch Processing**: Convert entire TV shows or movie collections with one command
-- **In-Place Encoding**: Output files saved in the same location as source
-
-### Powered By
-
-| Tool | Role |
-|------|------|
-| [HandBrakeCLI](https://handbrake.fr/) | Video encoding engine |
-| [FFprobe](https://ffmpeg.org/ffprobe.html) | Media analysis |
-| Python 3 | Application runtime |
+- **Batch Processing**: Convert entire TV shows or movie collections
+- **In-Place Encoding**: Output files saved in the same location as source (default)
+- **Custom Quality Settings**: Your tuned HandBrakeCLI settings for best quality/size ratio
 
 ---
 
@@ -46,8 +36,8 @@
 
 ```bash
 # Clone the repository
-git clone https://github.com/vconv-project/vconv.git
-cd vconv
+git clone https://github.com/motaz-hefny/MoTekLab-vconv.git
+cd MoTekLab-vconv
 
 # Install dependencies
 pip install -r requirements.txt
@@ -56,104 +46,108 @@ pip install -r requirements.txt
 chmod +x vconv.py
 ```
 
-### Usage
-
-```bash
-# Run from any folder containing video files
-./vconv.py
-
-# Scan subfolders and show GUI
-./vconv.py --gui
-
-# Run in batch mode (scan current folder, convert all)
-./vconv.py --batch
-
-# Analyze files without converting
-./vconv.py --analyze
-
-# Specify output quality
-./vconv.py --quality 23
-
-# Use specific encoder
-./vconv.py --encoder nvenc_h265
-```
-
 ---
 
-## Usage Examples
+## Usage
 
-### Convert TV Show Folder
+### Basic Usage
 
 ```bash
-# Navigate to your TV show folder
+# Run from current folder (scans current directory and subfolders)
+./vconv.py
+
+# Launch GUI
+./vconv.py --gui
+```
+
+### Folder Options
+
+```bash
+# Specify input folder
+./vconv.py --folder_in /path/to/videos
+
+# Convert to different output folder (preserves folder structure)
+./vconv.py --folder_in /mnt/movies --folder_out /mnt/converted
+
+# Convert in place (default - same folder as source)
+./vconv.py --folder_in /home/user/videos
+```
+
+### Mode Options
+
+```bash
+# Batch mode (non-interactive, converts all found files)
+./vconv.py --batch
+
+# Analyze files (show info without converting)
+./vconv.py --analyze
+
+# Launch GUI
+./vconv.py --gui
+```
+
+### Encoding Options
+
+```bash
+# Quality (RF value: 0-51, lower=better quality, default: 27)
+./vconv.py --quality 27
+./vconv.py -q 23
+
+# Encoder selection
+./vconv.py --encoder nvenc_h265    # NVIDIA GPU
+./vconv.py --encoder x265           # CPU
+./vconv.py --encoder auto           # Auto-detect (default)
+
+# Output format
+./vconv.py --format mp4    # Default
+./vconv.py --format mkv
+
+# Use preset
+./vconv.py --preset balanced   # Your favorite settings
+./vconv.py --preset fast
+./vconv.py --preset archive
+```
+
+### Examples
+
+```bash
+# Convert TV show folder in place
 cd "/path/to/TV Show Season 1"
+./vconv.py --batch
 
-# Run vconv - it will scan all subfolders
-vconv
-```
+# Convert movies to new location with high quality
+./vconv.py --folder_in /mnt/movies --folder_out /mnt/converted --quality 23 --batch
 
-### Batch Convert Multiple Shows
+# Analyze a folder without converting
+./vconv.py --folder_in /home/user/videos --analyze
 
-```bash
-# From parent folder containing multiple shows
-cd "/path/to/movies"
+# Use GPU encoding (if NVIDIA available)
+./vconv.py --encoder nvenc_h265 --batch
 
-# Convert all videos in all subfolders
-vconv --batch --quality 22
-```
-
-### Use Specific Preset
-
-```bash
-# Use "Archive" preset for best quality
-vconv --preset archive
-
-# Use "Fast" preset for quick conversion
-vconv --preset fast --encoder nvenc_h265
+# Quick convert with lower quality (smaller files)
+./vconv.py --quality 30 --batch
 ```
 
 ---
 
 ## Command Line Options
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `--gui` | Launch GUI (default when display available) | Enabled |
-| `--batch` | Batch mode: scan and convert without interaction | Disabled |
-| `--analyze` | Analyze files only, don't convert | Disabled |
-| `--quality, -q` | RF quality value (0-51, lower = better) | 23 |
-| `--encoder, -e` | Video encoder (auto, nvenc_h265, x265, etc.) | auto |
-| `--preset, -p` | Use preset (fast, balanced, high_quality, archive) | None |
-| `--output, -o` | Output format (mp4, mkv) | mp4 |
-| `--recursive, -r` | Scan subdirectories | True |
-| `--debug` | Enable debug logging | Disabled |
-| `--help, -h` | Show help message | - |
-
----
-
-## Requirements
-
-### System Requirements
-
-- **OS**: Linux (Ubuntu/Debian, Fedora, Arch, openSUSE)
-- **Python**: 3.8 or higher
-- **Display**: 800x600 minimum (for GUI mode)
-
-### Required Dependencies
-
-| Package | Description | Auto-install |
-|---------|-------------|---------------|
-| `handbrake-cli` | Video encoding | Yes |
-| `ffmpeg` / `ffprobe` | Media analysis | Yes |
-| `python3` | Runtime | No (system) |
-
-### Hardware Acceleration (Optional)
-
-| GPU | Encoder | Driver |
-|-----|---------|--------|
-| NVIDIA | NVENC | nvidia-driver |
-| Intel | QSV | intel-media-driver |
-| AMD | VCE/VCN | Mesa drivers |
+| Option | Short | Description | Default |
+|--------|-------|-------------|---------|
+| `--folder_in` | `-i` | Input folder to scan | current directory |
+| `--folder_out` | `-O` | Output folder (preserves structure) | same as source |
+| `--recursive` | `-r` | Scan subdirectories | true |
+| `--gui` | `-g` | Launch GUI | auto |
+| `--batch` | `-b` | Batch mode (no interaction) | disabled |
+| `--analyze` | `-a` | Analyze files only | disabled |
+| `--encoder` | `-e` | Video encoder | auto |
+| `--quality` | `-q` | RF quality (0-51) | 27 |
+| `--preset` | `-p` | Use preset | none |
+| `--format` | `-f` | Output format (mp4/mkv) | mp4 |
+| `--audio_encoder` | `-ae` | Audio encoder | copy |
+| `--audio_bitrate` | `-ab` | Audio bitrate (kbps) | 128 |
+| `--debug` | `-d` | Enable debug logging | disabled |
+| `--help` | `-h` | Show help | - |
 
 ---
 
@@ -167,87 +161,81 @@ vconv --preset fast --encoder nvenc_h265
 | **qsv_h264** | Intel iGPU | Quick Sync Video |
 | **amf_h265** | AMD GPU | AMD hardware encoding |
 | **amf_h264** | AMD GPU | AMD hardware encoding |
-| **x265** | CPU | Quality-first HEVC |
+| **x265** | CPU | Quality-first HEVC (default) |
 | **x264** | CPU | Maximum compatibility |
 | **libsvtav1** | CPU | Modern AV1 codec |
 
 ---
 
-## Configuration
+## Presets
 
-Settings are stored in `~/.config/vconv/vconv.conf`
-
-```json
-{
-  "general": {
-    "language": "en",
-    "theme": "dark"
-  },
-  "defaults": {
-    "encoder": "auto",
-    "quality": 23,
-    "format": "mp4"
-  }
-}
-```
+| Preset | Quality | Description |
+|--------|---------|-------------|
+| **fast** | RF 27 | Quick encoding, good balance |
+| **balanced** | RF 27 | Your personal favorite settings |
+| **high_quality** | RF 23 | Better quality |
+| **archive** | RF 20 | Best quality for storage |
+| **tv_show** | RF 27 | Optimized for TV shows |
+| **nvenc_fast** | RF 27 | Fast NVIDIA GPU |
+| **nvenc_balanced** | RF 25 | Balanced NVIDIA |
+| **nvenc_quality** | RF 22 | High quality NVIDIA |
+| **web_optimized** | RF 25 | Web/streaming |
+| **mobile** | RF 28 | Smaller files for mobile |
 
 ---
 
-## Releases
+## Your Quality Settings
 
-We provide releases in multiple formats:
+The default settings include your tuned HandBrakeCLI parameters:
 
-| Format | Description | Target |
-|--------|-------------|--------|
-| **.deb** | Debian/Ubuntu package | Debian-based distros |
-| **AppImage** | Portable format | Any Linux distro |
-| **Source** | GitHub releases | Building from source |
-
-### Installing .deb
-
-```bash
-sudo dpkg -i vconv_8.0.0_amd64.deb
+```
+cabac=1:ref=5:analyse=0x133:me=umh:subme=9:chroma-me=1:deadzone-inter=21:deadzone-intra=11:b-adapt=2:rc-lookahead=60:vbv-maxrate=10000:vbv-bufsize=10000:qpmax=69:bframes=5:direct=auto
 ```
 
-### Running AppImage
+These are applied by default when using x265/x264 encoders.
+
+---
+
+## Requirements
+
+### System Requirements
+
+- **OS**: Linux (Ubuntu/Debian, Fedora, Arch)
+- **Python**: 3.8+
+
+### Required Dependencies
 
 ```bash
-chmod +x vconv_8.0.0.AppImage
-./vconv_8.0.0.AppImage
+# Ubuntu/Debian
+sudo apt-get install handbrake-cli ffmpeg
+
+# Fedora
+sudo dnf install handbrake-cli ffmpeg
+
+# Arch
+sudo pacman -S handbrake ffmpeg
 ```
 
 ---
 
 ## Troubleshooting
 
-### Check Logs
-
 ```bash
+# Check logs
 cat ~/.config/vconv/logs/vconv.log
+
+# Run with debug
+./vconv.py --debug --batch
 ```
-
-### Common Issues
-
-| Issue | Solution |
-|-------|----------|
-| HandBrakeCLI not found | `sudo apt install handbrake-cli` |
-| GPU not detected | Install GPU drivers |
-| Permission denied | Check output directory permissions |
-
----
-
-## Contributing
-
-Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) before submitting PRs.
 
 ---
 
 ## License
 
-This project is licensed under the [GPLv3 License](LICENSE).
+[GPLv3](LICENSE) - Created by MoTekLab
 
 ---
 
 <p align="center">
-  Made with ❤️ for the open source community
+  Made with ❤️
 </p>

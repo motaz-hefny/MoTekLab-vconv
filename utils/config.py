@@ -30,7 +30,7 @@ class Config:
         },
         'defaults': {
             'encoder': 'auto',
-            'quality': 23,
+            'quality': 27,
             'audio_encoder': 'copy',
             'audio_bitrate': 128,
             'format': 'mp4',

@@ -1,75 +1,123 @@
 {
   "presets": {
-    "ultra_fast": {
-      "name": "Ultra Fast",
-      "description": "Quickest encoding, larger file size",
-      "encoder": "x264",
-      "quality": 28,
-      "audio_encoder": "aac",
-      "audio_bitrate": 128,
-      "preset": "ultrafast",
-      "filters": {
-        "denoise": "off",
-        "deinterlace": "off"
-      }
-    },
     "fast": {
       "name": "Fast",
-      "description": "Good quality with reasonable speed",
+      "description": "Quick encoding with good quality/size balance",
       "encoder": "x265",
-      "quality": 25,
+      "quality": 27,
       "audio_encoder": "aac",
       "audio_bitrate": 128,
       "preset": "fast",
       "filters": {
         "denoise": "off",
         "deinterlace": "auto"
+      },
+      "advanced": {
+        "cabac": 1,
+        "ref": 3,
+        "me": "hex",
+        "subme": 7,
+        "rc-lookahead": 30,
+        "vbv-maxrate": 5000,
+        "vbv-bufsize": 5000,
+        "bframes": 3
       }
     },
     "balanced": {
       "name": "Balanced",
-      "description": "Recommended balance between quality and size",
+      "description": "Recommended balance - your personal favorite settings",
       "encoder": "x265",
-      "quality": 23,
+      "quality": 27,
       "audio_encoder": "aac",
       "audio_bitrate": 128,
       "preset": "medium",
       "filters": {
         "denoise": "light",
         "deinterlace": "auto"
+      },
+      "advanced": {
+        "cabac": 1,
+        "ref": 5,
+        "analyse": "0x133",
+        "me": "umh",
+        "subme": 9,
+        "chroma-me": 1,
+        "deadzone-inter": 21,
+        "deadzone-intra": 11,
+        "b-adapt": 2,
+        "rc-lookahead": 60,
+        "vbv-maxrate": 10000,
+        "vbv-bufsize": 10000,
+        "qpmax": 69,
+        "bframes": 5,
+        "direct": "auto"
       }
     },
     "high_quality": {
       "name": "High Quality",
-      "description": "Better quality, slower encoding",
+      "description": "Better quality, slightly larger files",
       "encoder": "x265",
-      "quality": 20,
+      "quality": 23,
       "audio_encoder": "aac",
       "audio_bitrate": 192,
       "preset": "slow",
       "filters": {
         "denoise": "medium",
         "deinterlace": "auto"
+      },
+      "advanced": {
+        "cabac": 1,
+        "ref": 5,
+        "analyse": "0x133",
+        "me": "umh",
+        "subme": 9,
+        "chroma-me": 1,
+        "deadzone-inter": 21,
+        "deadzone-intra": 11,
+        "b-adapt": 2,
+        "rc-lookahead": 60,
+        "vbv-maxrate": 10000,
+        "vbv-bufsize": 10000,
+        "qpmax": 69,
+        "bframes": 5,
+        "direct": "auto"
       }
     },
     "archive": {
       "name": "Archive",
-      "description": "Best quality, largest file, for long-term storage",
+      "description": "Best quality for long-term storage",
       "encoder": "x265",
-      "quality": 18,
+      "quality": 20,
       "audio_encoder": "aac",
       "audio_bitrate": 256,
       "preset": "veryslow",
       "filters": {
         "denoise": "strong",
         "deinterlace": "auto"
+      },
+      "advanced": {
+        "cabac": 1,
+        "ref": 5,
+        "analyse": "0x133",
+        "me": "umh",
+        "subme": 9,
+        "chroma-me": 1,
+        "deadzone-inter": 21,
+        "deadzone-intra": 11,
+        "b-adapt": 2,
+        "rc-lookahead": 60,
+        "vbv-maxrate": 10000,
+        "vbv-bufsize": 10000,
+        "qpmax": 69,
+        "bframes": 5,
+        "direct": "auto"
       }
     },
     "nvenc_fast": {
       "name": "NVENC Fast",
       "description": "Fast GPU encoding with NVIDIA",
       "encoder": "nvenc_h265",
-      "quality": 25,
+      "quality": 27,
       "audio_encoder": "aac",
       "audio_bitrate": 128,
       "filters": {
@@ -77,9 +125,21 @@
         "deinterlace": "off"
       }
     },
+    "nvenc_balanced": {
+      "name": "NVENC Balanced",
+      "description": "Recommended NVIDIA GPU encoding",
+      "encoder": "nvenc_h265",
+      "quality": 25,
+      "audio_encoder": "aac",
+      "audio_bitrate": 128,
+      "filters": {
+        "denoise": "light",
+        "deinterlace": "auto"
+      }
+    },
     "nvenc_quality": {
       "name": "NVENC Quality",
-      "description": "High quality GPU encoding with NVIDIA",
+      "description": "High quality NVIDIA GPU encoding",
       "encoder": "nvenc_h265",
       "quality": 22,
       "audio_encoder": "aac",
@@ -89,11 +149,41 @@
         "deinterlace": "auto"
       }
     },
+    "tv_show": {
+      "name": "TV Show",
+      "description": "Optimized for TV shows - smaller files, good quality",
+      "encoder": "x265",
+      "quality": 27,
+      "audio_encoder": "aac",
+      "audio_bitrate": 128,
+      "preset": "medium",
+      "filters": {
+        "denoise": "light",
+        "deinterlace": "auto"
+      },
+      "advanced": {
+        "cabac": 1,
+        "ref": 5,
+        "analyse": "0x133",
+        "me": "umh",
+        "subme": 9,
+        "chroma-me": 1,
+        "deadzone-inter": 21,
+        "deadzone-intra": 11,
+        "b-adapt": 2,
+        "rc-lookahead": 60,
+        "vbv-maxrate": 10000,
+        "vbv-bufsize": 10000,
+        "qpmax": 69,
+        "bframes": 5,
+        "direct": "auto"
+      }
+    },
     "web_optimized": {
       "name": "Web Optimized",
-      "description": "Optimized for streaming/web, H.264",
+      "description": "Optimized for streaming/web",
       "encoder": "x264",
-      "quality": 23,
+      "quality": 25,
       "audio_encoder": "aac",
       "audio_bitrate": 128,
       "preset": "medium",
@@ -108,9 +198,9 @@
     },
     "mobile": {
       "name": "Mobile",
-      "description": "Smaller size, compatible with mobile devices",
+      "description": "Smaller files for mobile devices",
       "encoder": "x264",
-      "quality": 26,
+      "quality": 28,
       "audio_encoder": "aac",
       "audio_bitrate": 96,
       "preset": "fast",
@@ -119,19 +209,6 @@
         "deinterlace": "auto"
       },
       "resolution": "1280x720"
-    },
-    "tv_show": {
-      "name": "TV Show",
-      "description": "Good quality for TV shows, smaller files",
-      "encoder": "x265",
-      "quality": 24,
-      "audio_encoder": "aac",
-      "audio_bitrate": 128,
-      "preset": "medium",
-      "filters": {
-        "denoise": "light",
-        "deinterlace": "auto"
-      }
     }
   },
   "custom": []

@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 class ConversionSettings:
     """Conversion settings container."""
     encoder: str = "x265"
-    quality: int = 23  # RF value (0-51)
+    quality: int = 27  # RF value (0-51), default 27
     audio_encoder: str = "copy"
     audio_bitrate: Optional[int] = None
     resolution: Optional[str] = None  # "1920x1080", "1280x720", etc.
@@ -32,6 +32,8 @@ class ConversionSettings:
     subtitle_track: Optional[int] = None
     burn_subtitle: bool = False
     output_format: str = "mp4"
+    # Advanced x265/x264 settings (your personal settings)
+    advanced: Optional[dict] = None  # Extra HandBrakeCLI -x options
 
 
 @dataclass
@@ -193,10 +195,18 @@ class Converter:
 
         # Extra options for better quality (tuned settings)
         if settings.encoder in ['x264', 'x265']:
-            cmd.extend([
-                '--x264-preset', 'medium',
-                '--h264-level', '4.1'
-            ])
+            if settings.advanced:
+                # Build advanced -x options from dict
+                x_opts = []
+                for key, value in settings.advanced.items():
+                    x_opts.append(f"{key}={value}")
+                if x_opts:
+                    cmd.extend(['-x', ':'.join(x_opts)])
+            else:
+                # Default tuned settings (your personal favorites)
+                cmd.extend([
+                    '-x', 'cabac=1:ref=5:analyse=0x133:me=umh:subme=9:chroma-me=1:deadzone-inter=21:deadzone-intra=11:b-adapt=2:rc-lookahead=60:vbv-maxrate=10000:vbv-bufsize=10000:qpmax=69:bframes=5:direct=auto'
+                ])
 
         return cmd
 
@@ -236,7 +246,7 @@ def create_default_settings() -> ConversionSettings:
     """Create default conversion settings."""
     return ConversionSettings(
         encoder="x265",
-        quality=23,
+        quality=27,
         audio_encoder="copy",
         output_format="mp4"
     )
