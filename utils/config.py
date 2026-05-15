@@ -40,6 +40,8 @@ class Config:
         'ui': {
             'window_width': 900,
             'window_height': 650,
+            'window_x': None,
+            'window_y': None,
             'show_toolbar': True,
             'confirm_delete': True
         },

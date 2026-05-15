@@ -25,21 +25,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Download Links**: Option to provide manual download links for user
 
 #### Hardware Support
-- **NVIDIA NVENC**: H.264 and H.265 GPU encoding
-- **Intel Quick Sync (QSV)**: H.264 and H.265 encoding
-- **AMD VCE/VCN**: H.264 and H.265 encoding
+- **NVIDIA NVENC**: H.264 and H.265 GPU encoding (fastest)
+- **Intel Quick Sync (QSV)**: H.264 and H.265 encoding (low power)
+- **AMD VCE/VCN**: H.264 and H.265 encoding (good balance)
 - **Auto GPU Detection**: Automatically detects and selects best encoder
 - **Hardware Badge**: Shows detected hardware in status bar
 
 #### Encoder Descriptions
 - Added descriptive tooltips explaining each encoder's use case
 - "Best for" recommendations for each encoder option
+- Shows "Recommended" badge for auto-detected best encoder
 
 #### File Handling
 - **Smart Output Location**: Default output to same location as source
+- **Custom Output Folder**: Option to save all files to specific folder
 - **Filename Conflict Detection**: Checks all files BEFORE batch starts
 - **Conflict Resolution UI**: Dialog to rename or overwrite existing files
 - **Batch Pre-validation**: Validates all files before showing start button
+- **Folder Scanning**: Recursive scan for TV show seasons
 
 #### UI/UX
 - **Tab-based Interface**: Convert, Analyze, Presets, Queue tabs
@@ -48,6 +51,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - English (en)
   - Classical Arabic (ar) - RTL
   - Egyptian Arabic (ar_eg) - RTL
+- **Window Position Memory**: Remembers last window position
+- **Subtitle Options**: Copy all, Burn in, or remove
+- **Audio Options**: Copy, re-encode, channel selection
+- **Comprehensive Tooltips**: Help text on all UI elements
+- **File Validation**: Check files before conversion
+
+#### Installation
+- **PATH Integration**: Adds to /usr/local/bin for CLI access
+- **Start Menu Entry**: Adds to Multimedia category
+- **Desktop Shortcut**: Optional desktop shortcut
 - **RTL Layout**: Proper mirror layout for Arabic languages
 - **Job Queue UI**: Full queue management window
 - **Progress Indicators**: Real-time progress with percentage and ETA
