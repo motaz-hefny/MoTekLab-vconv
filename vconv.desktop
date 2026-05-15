@@ -1,0 +1,12 @@
+[Desktop Entry]
+Version=8.0
+Name=vconv - Video Converter
+Comment=A modern video converter powered by HandBrakeCLI
+Exec=python3 /usr/local/bin/vconv.py --gui
+Icon=video-x-generic
+Terminal=false
+Type=Application
+Categories=AudioVideo;Video;
+Keywords=video;convert;handbrake;encoder;convert;
+StartupNotify=true
+StartupWMClass=vconv.py

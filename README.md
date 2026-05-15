@@ -30,21 +30,54 @@
 
 ---
 
-## Quick Start
+## Installation
 
-### Installation
+### 1. Install Dependencies
+
+```bash
+# Ubuntu/Debian
+sudo apt-get install handbrake-cli ffmpeg python3-pysimplegui
+
+# Fedora
+sudo dnf install handbrake-cli ffmpeg python3-pysimplegui
+```
+
+### 2. Clone and Install
 
 ```bash
 # Clone the repository
 git clone https://github.com/motaz-hefny/MoTekLab-vconv.git
 cd MoTekLab-vconv
 
-# Install dependencies
-pip install -r requirements.txt
-
-# Make executable
-chmod +x vconv.py
+# Run installation (creates PATH entry and start menu)
+sudo python3 setup.py install
 ```
+
+### Installation Options
+
+The setup script will:
+- ✅ Create symlink in `/usr/local/bin` (adds to PATH - run `vconv` from anywhere)
+- ✅ Add to Start Menu under **Multimedia**
+- ✅ Ask to create Desktop shortcut (optional)
+
+### Manual Installation
+
+```bash
+# Add to PATH (requires sudo)
+sudo ln -s $(pwd)/vconv.py /usr/local/bin/vconv
+
+# Add to start menu
+sudo cp vconv.desktop /usr/local/share/applications/
+```
+
+### Verify Installation
+
+```bash
+# Test
+vconv --version
+
+# Open GUI
+vconv --gui
 
 ---
 
