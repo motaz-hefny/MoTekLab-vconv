@@ -55,8 +55,22 @@ class MainWindow:
         self.window_x = self.config.get('ui', 'window_x', None)
         self.window_y = self.config.get('ui', 'window_y', None)
 
+        # Build encoder display map
+        self.encoder_map = self._build_encoder_map()
+
         # Set theme
         self._setup_theme()
+
+    def _build_encoder_map(self):
+        """Build encoder display name to id mapping."""
+        available_encoders = self.encoder_manager.get_available_encoders()
+        encoder_map = {}
+        for enc in ['nvenc_h265', 'nvenc_h264', 'qsv_h265', 'qsv_h264', 'amf_h265', 'amf_h264', 'x265', 'x264', 'libsvtav1']:
+            if enc in available_encoders:
+                info = self.encoder_manager.get_encoder_info(enc)
+                display_name = f"{info['name']} - {info['best_for'][:30]}..."
+                encoder_map[display_name] = enc
+        return encoder_map
 
     def _setup_theme(self):
         """Setup application theme."""
@@ -81,11 +95,12 @@ class MainWindow:
             size=(1000, 700),
             location=(self.window_x, self.window_y) if self.window_x and self.window_y else None,
             resizable=True,
-            finalize=True,
-            enable_close_attached_device=True
+            finalize=True
         )
 
+        # Bind events
         window.bind('<Escape>', '-CANCEL-')
+        window.bind('Configure', '-MOVE-')  # Window moved/resized
 
         while True:
             event, values = window.read()
@@ -98,7 +113,7 @@ class MainWindow:
                 break
 
             # Save window position on move
-            if event == sg.WINDOW_MOVED:
+            if event == '-MOVE-':
                 win = window.TKWindow
                 self.window_x = win.winfo_x()
                 self.window_y = win.winfo_y()
@@ -216,9 +231,8 @@ class MainWindow:
         available_encoders = self.encoder_manager.get_available_encoders()
         recommended = self.encoder_manager.get_recommended_encoder()
 
-        # Build encoder list with descriptions
+        # Build encoder list with descriptions using self.encoder_map
         encoder_display = []
-        encoder_map = {}
         for enc in ['nvenc_h265', 'nvenc_h264', 'qsv_h265', 'qsv_h264', 'amf_h265', 'amf_h264', 'x265', 'x264', 'libsvtav1']:
             if enc in available_encoders:
                 info = self.encoder_manager.get_encoder_info(enc)
@@ -226,7 +240,7 @@ class MainWindow:
                 if enc == recommended:
                     display_name = f"✅ {info['name']} (Recommended)"
                 encoder_display.append(display_name)
-                encoder_map[display_name] = enc
+                self.encoder_map[display_name] = enc
 
         # Hardware info
         hw_name = self.encoder_manager.get_hardware_name()
@@ -506,8 +520,8 @@ class MainWindow:
         encoder = self.encoder
         if 'Recommended' in str(values['-ENCODER-']):
             encoder = self.encoder_manager.get_recommended_encoder()
-        elif values['-ENCODER-'] in encoder_map:
-            encoder = encoder_map[values['-ENCODER-']]
+        elif values['-ENCODER-'] in self.encoder_map:
+            encoder = self.encoder_map[values['-ENCODER-']]
 
         quality = int(values['-QUALITY-'])
         format_val = 'mp4' if values['-MP4-'] else 'mkv'
