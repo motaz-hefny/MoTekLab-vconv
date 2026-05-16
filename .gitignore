@@ -51,4 +51,4 @@ htmlcov/
 # Build
 *.deb
 *.AppImage
-*.tar.gz
+*.tar.gz/dist/
