@@ -38,6 +38,25 @@ from utils.i18n import I18n
 VIDEO_EXTENSIONS = {'.mkv', '.mp4', '.avi', '.mov', '.webm', '.wmv', '.flv', '.m4v', '.mpg', '.mpeg', '.ts', '.m2ts', '.mts', '.vob'}
 
 
+def _asset_path(filename: str) -> Path:
+    """Resolve path to an asset file, trying multiple locations.
+    
+    Handles three deployment modes:
+    1. Dev mode: project_root/public/filename
+    2. AppImage: PyInstaller bundle public/filename (via __file__ parent)
+    3. .deb install: /opt/vconv/filename
+    """
+    # Mode 1 & 2: relative to project / bundle root
+    p = Path(__file__).parent.parent / "public" / filename
+    if p.exists():
+        return p
+    # Mode 3: same directory as script (.deb install)
+    p = Path(__file__).parent.parent / filename
+    if p.exists():
+        return p
+    return p  # Return best guess even if not found
+
+
 class ConversionWorker(QThread):
     """Worker thread for file conversion with proper Qt threading."""
     progress = pyqtSignal(object)
@@ -180,7 +199,7 @@ class MainWindow(QMainWindow):
 
     def _setup_ui(self):
         self.setWindowTitle("vconv - Video Converter v9.1.0")
-        icon_path = Path(__file__).parent.parent / "public" / "vconv-icon-256.png"
+        icon_path = _asset_path("vconv-icon-256.png")
         if icon_path.exists():
             self.setWindowIcon(QIcon(str(icon_path)))
         self.setMinimumSize(1100, 700)
@@ -1188,7 +1207,7 @@ class MainWindow(QMainWindow):
         layout.setSpacing(0)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        banner_path = Path(__file__).parent.parent / "public" / "vconv-about-banner.png"
+        banner_path = _asset_path("vconv-about-banner.png")
         if banner_path.exists():
             banner = QLabel()
             pixmap = QPixmap(str(banner_path))
@@ -1236,7 +1255,7 @@ def launch(config: Config, i18n: I18n, args=None, encoder_manager=None):
     app = QApplication(sys.argv)
     app.setApplicationName("vconv")
     app.setApplicationVersion("9.1.0")
-    icon_path = Path(__file__).parent.parent / "public" / "vconv-icon-256.png"
+    icon_path = _asset_path("vconv-icon-256.png")
     if icon_path.exists():
         app.setWindowIcon(QIcon(str(icon_path)))
     window = MainWindow(config, i18n, args, encoder_manager)
