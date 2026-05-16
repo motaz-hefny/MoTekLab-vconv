@@ -2,13 +2,13 @@
 # Python 3.8+
 
 # GUI Framework
-pysimplegui>=4.65.0
+PyQt6>=6.5.0
 
-# Optional: Better themed widgets
-# customtkinter>=5.2.0
+# Help browser (markdown to HTML rendering)
+markdown>=3.4.0
 
 # Data handling
-# (No external dependencies needed - using stdlib json, configparser)
+# (Using stdlib: json, pathlib, dataclasses)
 
 # System utilities
-# (Using stdlib: subprocess, shutil, threading, tempfile, pathlib)
+# (Using stdlib: subprocess, shutil, threading, os, re, select, copy)

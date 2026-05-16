@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
 """
-vconv - Video Converter GUI v9.0.0
-A modern video conversion application powered by HandBrakeCLI
-Built with PyQt6
+MoTekLab Video Encoder — A modern video conversion application
+powered by HandBrakeCLI and PyQt6.
 
 Author: MoTekLab
-Version: 9.0.0
 License: GPLv3
 """
 
@@ -18,6 +16,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from utils.version import __version__, APP_NAME, APP_DISPLAY_NAME
 from utils.logging import setup_logging
 from utils.config import Config
 from utils.i18n import I18n
@@ -27,15 +26,13 @@ from core.converter import Converter, ConversionSettings
 from core.validator import FileValidator, generate_output_path
 from core.analyzer import MediaAnalyzer
 from core.queue import QueueManager
-
-
-VIDEO_EXTENSIONS = {'.mkv', '.mp4', '.avi', '.mov', '.webm', '.wmv', '.flv', '.m4v', '.mpg', '.mpeg', '.ts', '.m2ts', '.mts', '.vob'}
+from core.constants import VIDEO_EXTENSIONS
 
 
 def parse_arguments():
     parser = argparse.ArgumentParser(
         prog='vconv',
-        description='vconv - Video Converter powered by HandBrakeCLI',
+        description=f'{APP_DISPLAY_NAME} — powered by HandBrakeCLI',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -51,7 +48,8 @@ Examples:
 
     parser.add_argument('--folder_in', '-i', type=str, default=None, help='Input folder (default: current directory)')
     parser.add_argument('--folder_out', '-O', type=str, default=None, help='Output folder (default: same as source)')
-    parser.add_argument('--recursive', '-r', action='store_true', default=True, help='Scan subdirectories')
+    parser.add_argument('--recursive', '-r', action='store_true', default=True, help=argparse.SUPPRESS)  # backward compat
+    parser.add_argument('--no-recursive', action='store_true', default=False, help='Disable subdirectory scanning')
     parser.add_argument('--gui', '-g', action='store_true', help='Launch GUI')
     parser.add_argument('--batch', '-b', action='store_true', help='Batch mode')
     parser.add_argument('--analyze', '-a', action='store_true', help='Analyze only')
@@ -72,8 +70,8 @@ Examples:
 
 
 def show_version():
-    print("vconv - Video Converter")
-    print("Version: 9.2.0")
+    print(f"{APP_DISPLAY_NAME}")
+    print(f"Version: {__version__}")
     print("License: GPLv3")
     print("Powered by HandBrakeCLI")
 
@@ -175,7 +173,7 @@ def main():
 
     log_level = logging.DEBUG if args.debug else logging.INFO
     logger = setup_logging(level=log_level)
-    logger.info(f"Starting vconv v9.2.0...")
+    logger.info(f"Starting {APP_NAME} v{__version__}...")
     logger.info(f"Input folder: {input_folder}")
 
     config = Config()
@@ -205,8 +203,9 @@ def main():
     print(f"\n🖥️  Detected: {hw_info.name}")
     print(f"   Recommended: {encoder_manager.get_recommended_encoder()}")
 
+    recursive = not args.no_recursive
     if args.analyze or args.batch:
-        video_files = scan_folder(input_folder, args.recursive)
+        video_files = scan_folder(input_folder, recursive)
         if not video_files:
             print(f"\n❌ No video files found in: {input_folder}")
             sys.exit(0)
@@ -220,19 +219,13 @@ def main():
     else:
         # Launch PyQt6 GUI
         try:
-            from ui.main_window import MainWindow
-            from PyQt6.QtWidgets import QApplication
-            app = QApplication(sys.argv)
-            app.setApplicationName("vconv")
-            app.setApplicationVersion("9.0.0")
-            window = MainWindow(config=config, i18n=i18n, args=args, encoder_manager=encoder_manager)
-            window.show()
-            sys.exit(app.exec())
+            from ui.main_window import launch as gui_launch
+            gui_launch(config, i18n, args, encoder_manager)
         except Exception as e:
             logger.error(f"GUI failed: {e}")
             print(f"\n⚠️  GUI error: {e}")
             print("Falling back to batch mode...")
-            video_files = scan_folder(input_folder, args.recursive)
+            video_files = scan_folder(input_folder, recursive)
             if video_files:
                 convert_files_cli(video_files, args, logger, encoder_manager)
 

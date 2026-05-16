@@ -5,6 +5,37 @@ All notable changes to the vconv project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [9.2.2] - 2026-05-16
+
+### Changed
+- **Rebranded**: Application renamed from "vconv" to **MoTekLab Video Encoder** everywhere in the UI, About dialog, desktop file, help browser, docs, and locales
+- **Version**: 9.2.1 → 9.2.2
+
+---
+
+## [9.2.1] - 2026-05-16
+
+### Fixed
+- **Config mutation bug**: `DEFAULT_CONFIG.copy()` was shallow; nested dict modifications corrupted defaults permanently. Now uses `copy.deepcopy()`.
+- **requirements.txt**: Listed `pysimplegui` (unused) instead of `PyQt6` and `markdown` (required). Now correct.
+- **Version centralization**: Created `utils/version.py` — single source of truth, imported everywhere.
+- **Legacy Bash scripts**: Moved `vconv`, `convert.sh.base`, `vconv.conf` to `legacy/` to eliminate confusion.
+- **`--recursive` CLI flag**: Could not be disabled (`store_true` + `default=True`). Added `--no-recursive` flag.
+- **`setup_logging` handler wipe**: Calling it multiple times no longer clears handlers added by other modules.
+- **`VIDEO_EXTENSIONS` drift**: Defined once in `core/constants.py`, imported everywhere. Previously validator rejected `.ts`, `.m2ts`, `.mts`, `.vob`.
+- **Missing presets in UI**: `web_optimized` and `mobile` now appear in the preset dropdown.
+- **`_apply_preset` only set quality**: Now applies all preset fields (encoder, format, audio).
+- **`_monitor_progress` no timeout**: Added `select.select()` with 1s timeout so hung HandBrakeCLI won't block forever.
+- **Duplicate `launch()`**: `vconv.py` now imports `launch()` from `main_window.py` — single GUI startup path.
+- **QueueManager thread safety**: Added `threading.Lock` to all 12 public methods.
+- **i18n language fallback**: `set_language()` test-loads before swapping; corrupt/missing files preserve old translations.
+- **SPEC.md / ROADMAP.md**: Marked as archival with notes pointing to `docs/upgrade_audit.md`.
+
+### Changed
+- **Version**: 9.2.0 → 9.2.1
+- **README.md**: Updated project structure, version, install instructions
+- **vconv.desktop**: `Version=9.1` → `9.2`
+
 ---
 
 ## [9.2.0] - 2026-05-16

@@ -1,5 +1,7 @@
 # vconv Implementation Roadmap
 
+> ⚠️ **ARCHIVAL NOTICE:** This roadmap was drafted for the v8.0 PySimpleGUI rewrite. The project has since completed the PyQt6 migration (v9.0.0–v9.2.0). See `docs/future_plan.md` for the current feature roadmap and `CHANGELOG.md` for completed milestones.
+
 ## Version 8.0 - Major Rewrite
 
 ---

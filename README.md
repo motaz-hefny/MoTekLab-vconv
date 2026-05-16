@@ -1,4 +1,4 @@
-# vconv - Video Converter
+# MoTekLab Video Encoder
 
 <p align="center">
   <strong>A modern video conversion tool powered by HandBrakeCLI & PyQt6</strong>
@@ -19,9 +19,9 @@
 
 ## About
 
-**vconv** is a video converter GUI and CLI powered by HandBrakeCLI, built with PyQt6. Scan folders, convert video files in-place or to a new location, with hardware acceleration, subtitle handling, and a full conversion queue.
+**MoTekLab Video Encoder** (formerly vconv) is a video converter GUI and CLI powered by HandBrakeCLI, built with PyQt6. Scan folders, convert video files in-place or to a new location, with hardware acceleration, subtitle handling, and a full conversion queue.
 
-Version: **9.1.0** (PyQt6 rewrite)
+Version: **9.2.2** (PyQt6 rewrite)
 
 ### Key Features
 
@@ -61,17 +61,19 @@ sudo pacman -S handbrake ffmpeg python-pyqt6
 pip install PyQt6 markdown
 ```
 
-### 2. Clone and Install
+### 2. Clone and Install (Development)
 
 ```bash
 git clone https://github.com/motaz-hefny/MoTekLab-vconv.git
 cd MoTekLab-vconv
-sudo python3 setup.py install
+pip install -r requirements.txt
+# Or: sudo python3 setup.py install
 ```
 
 ### Quick Start (No Install)
 
 ```bash
+pip install -r requirements.txt
 python3 vconv.py --gui           # Launch GUI
 python3 vconv.py --batch         # Batch convert current folder
 python3 vconv.py --help          # All command line options
@@ -177,6 +179,7 @@ python3 vconv.py --folder_in /path/to/videos --analyze
 vconv/
 ├── vconv.py              # Main entry point
 ├── core/                 # Backend modules
+│   ├── constants.py      # Shared constants (video extensions, etc.)
 │   ├── converter.py      # HandBrakeCLI wrapper, subtitle args
 │   ├── encoder.py        # Hardware detection (NVENC/QSV/AMF)
 │   ├── analyzer.py       # ffprobe media analysis
@@ -186,15 +189,22 @@ vconv/
 │   ├── main_window.py    # PyQt6 main window
 │   └── help_browser.py   # Searchable help browser
 ├── utils/                # Utilities
+│   ├── version.py        # Central version string
 │   ├── config.py         # JSON config management
 │   ├── i18n.py           # Internationalization
 │   ├── logging.py        # Logging setup
+│   ├── updater.py        # GitHub release update checker
 │   └── tools.py          # Dependency checker
+├── legacy/               # Legacy Bash scripts (archived)
 ├── docs/                 # Documentation
-│   ├── user_guide.md     # Comprehensive user guide
-│   └── future_plan.md    # Feature roadmap
+│   ├── user_guide.md     # Comprehensive user guide (EN)
+│   ├── user_guide.ar.md  # User guide (AR)
+│   ├── future_plan.md    # Feature roadmap
+│   ├── release_process.md # Build pipeline guide
+│   └── upgrade_audit.md  # Code audit & recommendations
 ├── presets/              # Preset files
-├── locales/              # Translation files
+├── locales/              # Translation files (en, ar, ar_eg)
+├── public/               # Image assets (icon, banner, splash)
 ├── CHANGELOG.md          # Version history
 └── README.md             # This file
 ```

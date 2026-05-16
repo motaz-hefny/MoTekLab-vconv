@@ -1,6 +1,6 @@
 {
   "app": {
-    "title": "vconv - محول الفيديو",
+    "title": "MoTekLab Video Encoder - محول الفيديو",
     "version": "الإصدار",
     "description": "تطبيق تحويل فيديو حديث يعمل بـ HandBrakeCLI"
   },

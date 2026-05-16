@@ -1,5 +1,5 @@
 """
-vconv Main Window UI v9.2.0
+vconv Main Window UI
 
 PyQt6-based interface for video conversion.
 Features: Queue management, real progress, hardware acceleration, subtitle/audio management.
@@ -25,6 +25,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSize
 from PyQt6.QtGui import QAction, QFont, QKeySequence, QIcon, QPixmap
 
+from core.constants import VIDEO_EXTENSIONS
 from core.encoder import EncoderManager
 from core.converter import Converter, ConversionSettings, ConversionProgress
 from core.validator import FileValidator, generate_output_path
@@ -34,8 +35,7 @@ from ui.help_browser import HelpBrowser
 from utils.config import Config
 from utils.updater import check_for_updates, UpdateInfo
 from utils.i18n import I18n
-
-VIDEO_EXTENSIONS = {'.mkv', '.mp4', '.avi', '.mov', '.webm', '.wmv', '.flv', '.m4v', '.mpg', '.mpeg', '.ts', '.m2ts', '.mts', '.vob'}
+from utils.version import __version__, APP_NAME, APP_DISPLAY_NAME
 
 
 def _asset_path(filename: str) -> Path:
@@ -198,7 +198,7 @@ class MainWindow(QMainWindow):
         return encoder_map
 
     def _setup_ui(self):
-        self.setWindowTitle("vconv - Video Converter v9.2.0")
+        self.setWindowTitle(f"{APP_DISPLAY_NAME} v{__version__}")
         icon_path = _asset_path("vconv-icon-256.png")
         if icon_path.exists():
             self.setWindowIcon(QIcon(str(icon_path)))
@@ -302,11 +302,11 @@ class MainWindow(QMainWindow):
         help_menu.addSeparator()
         act_update = QAction("🔄 &Check for Updates", self)
         act_update.triggered.connect(lambda: self._check_for_updates_now())
-        act_update.setToolTip("Check GitHub for a newer version of vconv")
+        act_update.setToolTip(f"Check GitHub for a newer version of {APP_NAME}")
         help_menu.addAction(act_update)
 
         help_menu.addSeparator()
-        help_menu.addAction("&About vconv", self._show_about)
+        help_menu.addAction(f"&About {APP_NAME}", self._show_about)
 
     def _create_toolbar(self):
         toolbar = QToolBar("Main Toolbar")
@@ -420,7 +420,7 @@ class MainWindow(QMainWindow):
         preset_group = QGroupBox("⚡ Preset")
         preset_layout = QVBoxLayout(preset_group)
         self.preset_combo = QComboBox()
-        self.preset_combo.addItems(['fast', 'balanced', 'high_quality', 'archive', 'nvenc_fast', 'nvenc_balanced', 'nvenc_quality', 'tv_show'])
+        self.preset_combo.addItems(['fast', 'balanced', 'high_quality', 'archive', 'nvenc_fast', 'nvenc_balanced', 'nvenc_quality', 'web_optimized', 'mobile', 'tv_show'])
         self.preset_combo.currentTextChanged.connect(self._apply_preset)
         self.preset_combo.setToolTip("Quick-select a preset configuration")
         self.preset_combo.setWhatsThis(
@@ -698,7 +698,7 @@ class MainWindow(QMainWindow):
 
     def _update_status_bar(self):
         hw = self.encoder_manager.get_hardware_name()
-        self.status_bar.showMessage(f"vconv v9.2.0 | {hw} | Files: {len(self.files)} | Queue: {len(self.queue_manager.jobs)} | Quality: RF {self.quality}")
+        self.status_bar.showMessage(f"{APP_NAME} v{__version__} | {hw} | Files: {len(self.files)} | Queue: {len(self.queue_manager.jobs)} | Quality: RF {self.quality}")
 
     def _load_window_geometry(self):
         x = self.config.get('ui', 'window_x')
@@ -884,11 +884,23 @@ class MainWindow(QMainWindow):
             with open(preset_file) as f:
                 presets = json.load(f)
             if preset_name in presets.get('presets', {}):
-                preset = presets['presets'][preset_name]
-                if 'quality' in preset:
-                    self.quality = preset['quality']
-                    self.quality_slider.setValue(preset['quality'])
-                self.status_label.setText(f"✅ {preset.get('name', preset_name)} applied")
+                p = presets['presets'][preset_name]
+                if 'quality' in p:
+                    self.quality = p['quality']
+                    self.quality_slider.setValue(p['quality'])
+                if 'encoder' in p:
+                    self.encoder = p['encoder']
+                    for display, enc in self.encoder_map.items():
+                        if enc == p['encoder']:
+                            self.encoder_combo.setCurrentText(display)
+                            break
+                if 'format' in p:
+                    self._set_format(p['format'])
+                if 'audio_encoder' in p:
+                    self.audio_enc_combo.setCurrentText(p['audio_encoder'])
+                if 'audio_bitrate' in p and p.get('audio_encoder', 'copy') != 'copy':
+                    self.audio_bit_combo.setCurrentText(str(p['audio_bitrate']))
+                self.status_label.setText(f"✅ {p.get('name', preset_name)} applied")
         except Exception as e:
             print(f"Preset error: {e}")
 
@@ -1121,7 +1133,7 @@ class MainWindow(QMainWindow):
             self.queue_table.setItem(i, 3, QTableWidgetItem(job.state))
 
     def _show_help_browser(self):
-        lang = getattr(self.i18n, 'lang', 'en') if hasattr(self, 'i18n') else 'en'
+        lang = getattr(self.i18n, '_requested_lang', 'en') if hasattr(self, 'i18n') else 'en'
         dlg = HelpBrowser(self, lang=lang)
         dlg.exec()
 
@@ -1146,12 +1158,13 @@ class MainWindow(QMainWindow):
         enabled = self.config.get('general', 'check_updates', True)
         if not enabled:
             return
-        self._update_worker = UpdateCheckWorker("9.2.0")
+        self._update_worker = UpdateCheckWorker(__version__)
         self._update_worker.update_found.connect(self._on_update_check_result)
         self._update_worker.start()
+        return
 
     def _check_for_updates_now(self):
-        self._update_worker = UpdateCheckWorker("9.2.0")
+        self._update_worker = UpdateCheckWorker(__version__)
         self._update_worker.update_found.connect(self._on_update_check_result)
         self.status_label.setText("🔍 Checking for updates...")
         self._update_worker.start()
@@ -1162,13 +1175,13 @@ class MainWindow(QMainWindow):
         elif info.error:
             self.status_label.setText(f"ℹ️ Update check failed: {info.error}")
         else:
-            self.status_label.setText(f"✅ vconv v{info.current_version} is up to date")
+            self.status_label.setText(f"✅ {APP_NAME} v{info.current_version} is up to date")
 
     def _show_update_dialog(self, info: UpdateInfo):
         dlg = QMessageBox(self)
         dlg.setWindowTitle("Update Available")
         dlg.setText(
-            f"<h3>🚀 vconv v{info.latest_version} Available</h3>"
+            f"<h3>🚀 {APP_NAME} v{info.latest_version} Available</h3>"
             f"<p>You have <b>v{info.current_version}</b>. "
             f"The latest is <b>v{info.latest_version}</b>.</p>"
             f"<hr>"
@@ -1186,7 +1199,7 @@ class MainWindow(QMainWindow):
 
     def _show_shortcuts(self):
         QMessageBox.information(self, "Keyboard Shortcuts",
-            "<h3>vconv Keyboard Shortcuts</h3>"
+            "<h3>MoTekLab Video Encoder Keyboard Shortcuts</h3>"
             "<table>"
             "<tr><td><b>F1</b></td><td>Open Help Browser</td></tr>"
             "<tr><td><b>Shift+F1</b></td><td>What's This? (click any control for help)</td></tr>"
@@ -1201,7 +1214,7 @@ class MainWindow(QMainWindow):
         hw = self.encoder_manager.get_hardware_name()
         recommended = self.encoder_manager.get_recommended_encoder()
         dlg = QDialog(self)
-        dlg.setWindowTitle("About vconv")
+        dlg.setWindowTitle(f"About {APP_NAME}")
         dlg.setFixedSize(500, 450)
         layout = QVBoxLayout(dlg)
         layout.setSpacing(0)
@@ -1218,11 +1231,11 @@ class MainWindow(QMainWindow):
         info_layout.setSpacing(6)
         info_layout.setContentsMargins(20, 15, 20, 15)
 
-        title = QLabel("<h2>vconv - Video Converter</h2>")
+        title = QLabel(f"<h2>{APP_DISPLAY_NAME}</h2>")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         info_layout.addWidget(title)
 
-        info_layout.addWidget(QLabel(f"<b>Version:</b> 9.2.0 &nbsp;|&nbsp; <b>License:</b> GPLv3"))
+        info_layout.addWidget(QLabel(f"<b>Version:</b> {__version__} &nbsp;|&nbsp; <b>License:</b> GPLv3"))
         info_layout.addWidget(QLabel(f"🖥️ <b>Hardware:</b> {hw}"))
         info_layout.addWidget(QLabel(f"⚡ <b>Recommended:</b> {recommended}"))
         info_layout.addWidget(QLabel("Powered by HandBrakeCLI &nbsp;|&nbsp; Built with PyQt6"))
@@ -1253,8 +1266,8 @@ class MainWindow(QMainWindow):
 
 def launch(config: Config, i18n: I18n, args=None, encoder_manager=None):
     app = QApplication(sys.argv)
-    app.setApplicationName("vconv")
-    app.setApplicationVersion("9.2.0")
+    app.setApplicationName(APP_NAME)
+    app.setApplicationVersion(__version__)
     icon_path = _asset_path("vconv-icon-256.png")
     if icon_path.exists():
         app.setWindowIcon(QIcon(str(icon_path)))

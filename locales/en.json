@@ -1,6 +1,6 @@
 {
   "app": {
-    "title": "vconv - Video Converter",
+    "title": "MoTekLab Video Encoder",
     "version": "Version",
     "description": "A modern video conversion application powered by HandBrakeCLI"
   },

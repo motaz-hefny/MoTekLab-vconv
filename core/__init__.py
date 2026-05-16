@@ -14,4 +14,3 @@ __all__ = [
     'FileValidator', 'ValidationResult', 'ValidationStatus', 'generate_output_path',
     'QueueManager', 'Job', 'JobState',
 ]
-__version__ = '9.0.0'

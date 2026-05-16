@@ -6,6 +6,7 @@ Supports multiple languages: English, Classical Arabic, Egyptian Arabic.
 
 import json
 import os
+import copy
 import logging
 from pathlib import Path
 from typing import Optional, Dict
@@ -36,7 +37,9 @@ class I18n:
             lang: Language code (en, ar, ar_eg)
             locales_dir: Directory containing locale files
         """
+        self._requested_lang = lang
         self.lang = lang
+        self._lang_resolved = lang
         self.translations: Dict[str, str] = {}
         self.is_rtl = False
 
@@ -60,23 +63,23 @@ class I18n:
 
         if lang_file.exists():
             loaded = self._load_file(lang_file)
+            self._lang_resolved = self.lang
         elif base_file.exists():
             loaded = self._load_file(base_file)
-            # Update lang to base
-            self.lang = self.lang.split('_')[0]
+            self._lang_resolved = self.lang.split('_')[0]
         else:
             logger.warning(f"No translation file found for: {self.lang}")
             # Load English as fallback
             en_file = self.locales_dir / "en.json"
             if en_file.exists():
                 loaded = self._load_file(en_file)
-                self.lang = 'en'
+                self._lang_resolved = 'en'
 
         # Determine RTL
-        self.is_rtl = self.lang in ['ar', 'ar_eg']
+        self.is_rtl = self._lang_resolved in ['ar', 'ar_eg']
 
         if loaded:
-            logger.info(f"Loaded translations for: {self.lang} (RTL: {self.is_rtl})")
+            logger.info(f"Loaded translations for: {self._lang_resolved} (RTL: {self.is_rtl})")
 
     def _load_file(self, filepath: Path) -> bool:
         """Load translation file."""
@@ -130,11 +133,20 @@ class I18n:
             logger.warning(f"Unsupported language: {lang}")
             return False
 
-        old_lang = self.lang
-        self.lang = lang
-        self._load_translations()
+        # Test-load the new language before swapping
+        test = I18n(lang, locales_dir=str(self.locales_dir))
+        if not test.translations:
+            logger.warning(f"Failed to load translations for: {lang}")
+            return False
 
-        logger.info(f"Language changed: {old_lang} -> {self.lang}")
+        old_lang = self._requested_lang
+        self._requested_lang = lang
+        self.lang = lang
+        self._lang_resolved = test._lang_resolved
+        self.translations = test.translations
+        self.is_rtl = test.is_rtl
+
+        logger.info(f"Language changed: {old_lang} -> {self._lang_resolved}")
         return True
 
 
@@ -160,7 +172,7 @@ _i18n_instance: Optional[I18n] = None
 def get_i18n(lang: str = 'en') -> I18n:
     """Get global i18n instance."""
     global _i18n_instance
-    if _i18n_instance is None or _i18n_instance.lang != lang:
+    if _i18n_instance is None or _i18n_instance._requested_lang != lang:
         _i18n_instance = I18n(lang=lang)
     return _i18n_instance
 

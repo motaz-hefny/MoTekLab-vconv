@@ -1,5 +1,7 @@
 # vconv - Video Converter GUI Specification
 
+> ⚠️ **ARCHIVAL NOTICE:** This specification document reflects the v8.0 planning phase and references PySimpleGUI/CustomTkinter. The actual implementation migrated to **PyQt6** in v9.0.0 and is now at **v9.2.0**. See `docs/upgrade_audit.md` for the current code audit and `CHANGELOG.md` for version history.
+
 ## Project Overview
 
 | Aspect | Details |

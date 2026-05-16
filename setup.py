@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-vconv Installation Setup
+MoTekLab Video Encoder — Installation Setup
 
 Installation options:
 - Install to /usr/local/bin (adds to PATH)
@@ -19,20 +19,21 @@ DESKTOP_DIR = os.path.expanduser("~/Desktop")
 APPLICATIONS_DIR = "/usr/local/share/applications"
 ICONS_DIR = "/usr/local/share/icons"
 
-APP_NAME = "vconv"
+APP_NAME = "MoTekLab Video Encoder"
+CLI_NAME = "vconv"
 SCRIPT_NAME = "vconv.py"
 DESKTOP_FILE = "vconv.desktop"
 
 
 def get_install_path():
-    """Get the path where vconv.py is currently located."""
+    """Get the path where the script is currently located."""
     return os.path.dirname(os.path.abspath(__file__))
 
 
 def install_system():
-    """Install vconv system-wide."""
+    """Install MoTekLab Video Encoder system-wide."""
     print("=" * 50)
-    print("vconv Installation")
+    print("MoTekLab Video Encoder Installation")
     print("=" * 50)
 
     install_path = get_install_path()
@@ -41,9 +42,9 @@ def install_system():
     # 1. Create symlink in /usr/local/bin (adds to PATH)
     print("\n[1/3] Creating symlink in /usr/local/bin...")
     try:
-        os.symlink(os.path.join(install_path, SCRIPT_NAME), os.path.join(INSTALL_DIR, APP_NAME))
-        print(f"   ✅ Created: {INSTALL_DIR}/{APP_NAME}")
-        print("   ✅ Added to PATH - you can run 'vconv' from anywhere")
+        os.symlink(os.path.join(install_path, SCRIPT_NAME), os.path.join(INSTALL_DIR, CLI_NAME))
+        print(f"   ✅ Created: {INSTALL_DIR}/{CLI_NAME}")
+        print(f"   ✅ Added to PATH - you can run '{CLI_NAME}' from anywhere")
     except FileExistsError:
         print(f"   ⚠️  Already exists: {INSTALL_DIR}/{APP_NAME}")
     except PermissionError:
@@ -57,7 +58,7 @@ def install_system():
     try:
         shutil.copy(desktop_src, desktop_dst)
         print(f"   ✅ Created: {APPLICATIONS_DIR}/{DESKTOP_FILE}")
-        print("   ✅ Available in: Start Menu → Multimedia → vconv")
+        print("   ✅ Available in: Start Menu → Multimedia → MoTekLab Video Encoder")
     except PermissionError:
         print(f"   ❌ Need sudo: sudo cp {desktop_src} {APPLICATIONS_DIR}/")
     except FileNotFoundError:
@@ -79,7 +80,7 @@ def install_system():
     print("\n" + "=" * 50)
     print("Installation complete!")
     print("=" * 50)
-    print("\nTo run vconv:")
+    print("\nTo run MoTekLab Video Encoder:")
     print("  vconv                    # From any folder")
     print("  vconv --gui              # Open GUI")
     print("  vconv --batch            # Convert all videos")
@@ -87,9 +88,9 @@ def install_system():
 
 
 def uninstall():
-    """Remove vconv installation."""
+    """Remove MoTekLab Video Encoder installation."""
     print("=" * 50)
-    print("vconv Uninstallation")
+    print("MoTekLab Video Encoder — Uninstallation")
     print("=" * 50)
 
     # Remove symlink

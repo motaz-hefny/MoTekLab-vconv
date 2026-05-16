@@ -45,8 +45,10 @@ def setup_logging(
     logger = logging.getLogger("vconv")
     logger.setLevel(level)
 
-    # Remove existing handlers
-    logger.handlers.clear()
+    # Only configure once — return existing logger if already set up
+    if logger.handlers:
+        logger.setLevel(level)
+        return logger
 
     # Create formatters
     detailed_formatter = logging.Formatter(

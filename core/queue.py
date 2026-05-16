@@ -4,6 +4,7 @@ Job Queue Management Module
 import logging
 import json
 import os
+import threading
 from dataclasses import dataclass, asdict
 from typing import Optional, Callable, List
 from datetime import datetime
@@ -50,71 +51,86 @@ class QueueManager:
         self.config_dir = config_dir
         self.queue_file = os.path.join(config_dir, "queue.json")
         self.jobs: List[Job] = []
+        self._lock = threading.Lock()
         self._load_queue()
 
     def add_job(self, job: Job) -> str:
-        self.jobs.append(job)
+        with self._lock:
+            self.jobs.append(job)
         self._save_queue()
         return job.id
 
     def add_jobs_from_files(self, files: List[tuple], settings: dict) -> List[str]:
         job_ids = []
-        for i, (inp, outp) in enumerate(files):
-            job = Job(id=f"job_{datetime.now().timestamp()}_{i}", input_path=inp, output_path=outp, settings=settings)
-            job_ids.append(self.add_job(job))
+        with self._lock:
+            for i, (inp, outp) in enumerate(files):
+                job = Job(id=f"job_{datetime.now().timestamp()}_{i}", input_path=inp, output_path=outp, settings=settings)
+                self.jobs.append(job)
+                job_ids.append(job.id)
+        self._save_queue()
         return job_ids
 
     def remove_job(self, job_id: str) -> bool:
-        for i, job in enumerate(self.jobs):
-            if job.id == job_id:
-                self.jobs.pop(i)
-                self._save_queue()
-                return True
+        with self._lock:
+            for i, job in enumerate(self.jobs):
+                if job.id == job_id:
+                    self.jobs.pop(i)
+                    self._save_queue()
+                    return True
         return False
 
     def get_job(self, job_id: str) -> Optional[Job]:
-        for job in self.jobs:
-            if job.id == job_id:
-                return job
+        with self._lock:
+            for job in self.jobs:
+                if job.id == job_id:
+                    return job
         return None
 
     def get_jobs_by_state(self, state: JobState) -> List[Job]:
-        return [j for j in self.jobs if j.state == state.value]
+        with self._lock:
+            return [j for j in self.jobs if j.state == state.value]
 
     def update_job_state(self, job_id: str, state: JobState, **kwargs):
-        job = self.get_job(job_id)
-        if job:
-            job.state = state.value
-            for k, v in kwargs.items():
-                if hasattr(job, k):
-                    setattr(job, k, v)
-            if state == JobState.RUNNING and not job.started_at:
-                job.started_at = datetime.now().isoformat()
-            elif state in [JobState.COMPLETED, JobState.FAILED, JobState.CANCELLED]:
-                job.completed_at = datetime.now().isoformat()
-            self._save_queue()
+        with self._lock:
+            job = self.get_job(job_id)
+            if job:
+                job.state = state.value
+                for k, v in kwargs.items():
+                    if hasattr(job, k):
+                        setattr(job, k, v)
+                if state == JobState.RUNNING and not job.started_at:
+                    job.started_at = datetime.now().isoformat()
+                elif state in [JobState.COMPLETED, JobState.FAILED, JobState.CANCELLED]:
+                    job.completed_at = datetime.now().isoformat()
+        self._save_queue()
 
     def get_next_pending_job(self) -> Optional[Job]:
-        for job in self.jobs:
-            if job.state == JobState.PENDING.value:
-                return job
+        with self._lock:
+            for job in self.jobs:
+                if job.state == JobState.PENDING.value:
+                    return job
         return None
 
     def reorder_job(self, job_id: str, new_position: int):
-        for i, job in enumerate(self.jobs):
-            if job.id == job_id:
-                self.jobs.pop(i)
-                self.jobs.insert(new_position, job)
-                self._save_queue()
-                return True
+        with self._lock:
+            if new_position < 0 or new_position >= len(self.jobs):
+                return False
+            for i, job in enumerate(self.jobs):
+                if job.id == job_id:
+                    self.jobs.pop(i)
+                    self.jobs.insert(new_position, job)
+                    self._save_queue()
+                    return True
         return False
 
     def clear_completed(self):
-        self.jobs = [j for j in self.jobs if j.state not in [JobState.COMPLETED.value, JobState.CANCELLED.value, JobState.FAILED.value]]
+        with self._lock:
+            self.jobs = [j for j in self.jobs if j.state not in [JobState.COMPLETED.value, JobState.CANCELLED.value, JobState.FAILED.value]]
         self._save_queue()
 
     def clear_all(self):
-        self.jobs.clear()
+        with self._lock:
+            self.jobs.clear()
         self._save_queue()
 
     def get_queue_summary(self) -> dict:

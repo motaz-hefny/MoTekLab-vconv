@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import Optional
 from pathlib import Path
 
+from core.constants import VIDEO_EXTENSIONS
 
 logger = logging.getLogger(__name__)
 
@@ -37,10 +38,7 @@ class ValidationResult:
 class FileValidator:
     """Validates files and output locations before conversion."""
 
-    SUPPORTED_EXTENSIONS = {
-        '.mkv', '.mp4', '.avi', '.mov', '.webm',
-        '.wmv', '.flv', '.m4v', '.mpg', '.mpeg'
-    }
+    SUPPORTED_EXTENSIONS = VIDEO_EXTENSIONS.copy()
 
     def __init__(self):
         self.validation_results: list[ValidationResult] = []

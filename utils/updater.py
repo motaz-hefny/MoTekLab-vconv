@@ -27,7 +27,7 @@ class UpdateInfo:
 
 
 def parse_version(tag: str) -> Tuple[int, ...]:
-    """Parse a version tag like 'v9.2.0' into (9, 1, 0)."""
+    """Parse a version tag like 'v9.2.2' into (9, 2, 2)."""
     tag = tag.lstrip('v')
     parts = []
     for p in tag.replace('-', '.').replace('_', '.').split('.'):
@@ -59,7 +59,7 @@ def check_for_updates(current_version: str, cache_file: Optional[str] = None,
     Check GitHub for a newer release.
 
     Args:
-        current_version: Current app version (e.g. '9.2.0')
+        current_version: Current app version (e.g. '9.2.2')
         cache_file: Path to cache file to avoid repeated API calls
         cache_ttl_hours: How long to use cached result
 
@@ -91,7 +91,7 @@ def check_for_updates(current_version: str, cache_file: Optional[str] = None,
             GITHUB_API,
             headers={
                 'Accept': 'application/vnd.github.v3+json',
-                'User-Agent': 'vconv-update-checker/9.2.0'
+                'User-Agent': 'vconv-update-checker/9.2.2'
             }
         )
         with urllib.request.urlopen(req, timeout=10) as resp:

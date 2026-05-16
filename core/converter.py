@@ -4,6 +4,7 @@ Video Converter Module - HandBrakeCLI wrapper with real progress tracking
 import subprocess
 import os
 import logging
+import select
 import threading
 import time
 import re
@@ -221,23 +222,26 @@ class Converter:
         # Patterns for HandBrake progress output
         pct_pattern = re.compile(r'Encoding:\s+task\s+\d+\s+of\s+\d+,\s+([\d.]+)\s+%')
         fps_pattern = re.compile(r'([\d.]+)\s+fps')
-        eta_pattern = re.compile(r'ETA\s+([\d:]+)')
 
         while self._current_process.poll() is None:
+            if self._cancel_flag:
+                break
             try:
-                line = self._current_process.stdout.readline()
-                if not line:
-                    time.sleep(0.1)
-                    continue
-                match = pct_pattern.search(line)
-                if match:
-                    pct = float(match.group(1))
-                    fps = 0.0
-                    fps_m = fps_pattern.search(line)
-                    if fps_m:
-                        fps = float(fps_m.group(1))
-                    if callback:
-                        callback(ConversionProgress(percent=pct, fps=fps))
+                rlist, _, _ = select.select([self._current_process.stdout], [], [], 1.0)
+                if rlist:
+                    line = self._current_process.stdout.readline()
+                    if not line:
+                        time.sleep(0.1)
+                        continue
+                    match = pct_pattern.search(line)
+                    if match:
+                        pct = float(match.group(1))
+                        fps = 0.0
+                        fps_m = fps_pattern.search(line)
+                        if fps_m:
+                            fps = float(fps_m.group(1))
+                        if callback:
+                            callback(ConversionProgress(percent=pct, fps=fps))
             except:
                 break
 

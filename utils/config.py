@@ -6,6 +6,7 @@ Handles reading, writing, and managing application configuration.
 
 import os
 import json
+import copy
 import logging
 from pathlib import Path
 from typing import Any, Optional
@@ -72,7 +73,7 @@ class Config:
 
         if not os.path.exists(self.config_path):
             logger.info(f"Config file not found, using defaults: {self.config_path}")
-            self.config = self.DEFAULT_CONFIG.copy()
+            self.config = copy.deepcopy(self.DEFAULT_CONFIG)
             self._loaded = True
             return False
 
@@ -84,12 +85,12 @@ class Config:
             return True
         except json.JSONDecodeError as e:
             logger.error(f"Invalid JSON in config: {e}")
-            self.config = self.DEFAULT_CONFIG.copy()
+            self.config = copy.deepcopy(self.DEFAULT_CONFIG)
             self._loaded = True
             return False
         except Exception as e:
             logger.error(f"Failed to load config: {e}")
-            self.config = self.DEFAULT_CONFIG.copy()
+            self.config = copy.deepcopy(self.DEFAULT_CONFIG)
             self._loaded = True
             return False
 
@@ -177,7 +178,7 @@ class Config:
 
     def reset_to_defaults(self):
         """Reset configuration to default values."""
-        self.config = self.DEFAULT_CONFIG.copy()
+        self.config = copy.deepcopy(self.DEFAULT_CONFIG)
         if os.path.exists(self.config_path):
             os.remove(self.config_path)
         logger.info("Configuration reset to defaults")

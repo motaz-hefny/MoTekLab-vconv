@@ -1,5 +1,5 @@
 """
-Help Browser - Searchable help system for vconv
+Help Browser - Searchable help system for {APP_NAME}
 Supports English (en) and Arabic (ar) with RTL layout
 """
 import os
@@ -13,6 +13,8 @@ from PyQt6.QtWidgets import (
     QPushButton, QLabel, QComboBox
 )
 from PyQt6.QtCore import Qt
+
+from utils.version import APP_NAME
 
 
 HELP_FILES = {
@@ -69,7 +71,7 @@ def _build_toc_tree(headings):
     current_cat = None
     current_cat_anchor = None
     current_topics = []
-    skip_anchors = {'table-of-contents', 'vconv-user-guide'}
+    skip_anchors = {'table-of-contents', f'{APP_NAME.lower().replace(" ", "-")}-user-guide'}
 
     for level, text, anchor in headings:
         if level == 1 or anchor in skip_anchors:
@@ -118,7 +120,7 @@ class HelpBrowser(QDialog):
         self.headings = []
         self.toc_structure = []
         self.html_content = ""
-        self.setWindowTitle(self._tr("vconv Help"))
+        self.setWindowTitle(self._tr(f"{APP_NAME} Help"))
         self.setMinimumSize(850, 580)
         self.resize(950, 650)
         self._setup_ui()
@@ -231,7 +233,7 @@ class HelpBrowser(QDialog):
         if not doc_path.exists():
             self.content.setHtml(
                 "<h1>" + self._tr("Help File Not Found", "ملف المساعدة غير موجود") + "</h1>"
-                "<p>" + self._tr("Please reinstall vconv.", "الرجاء إعادة تثبيت vconv.") + "</p>"
+                "<p>" + self._tr(f"Please reinstall {APP_NAME}.", f"الرجاء إعادة تثبيت {APP_NAME}.") + "</p>"
             )
             return
 
