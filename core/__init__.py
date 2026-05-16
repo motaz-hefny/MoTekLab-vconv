@@ -1,22 +1,17 @@
 """
 vconv Core Package
-Core functionality modules for video encoding, analysis, and queue management.
 """
-
-from .encoder import HardwareDetector, EncoderManager
-from .converter import Converter
-from .analyzer import MediaAnalyzer
-from .validator import FileValidator
-from .queue import QueueManager, Job
+from .encoder import HardwareDetector, EncoderManager, HardwareInfo, HardwareType
+from .converter import Converter, ConversionSettings, ConversionProgress
+from .analyzer import MediaAnalyzer, MediaInfo
+from .validator import FileValidator, ValidationResult, ValidationStatus, generate_output_path
+from .queue import QueueManager, Job, JobState
 
 __all__ = [
-    'HardwareDetector',
-    'EncoderManager',
-    'Converter',
-    'MediaAnalyzer',
-    'FileValidator',
-    'QueueManager',
-    'Job',
+    'HardwareDetector', 'EncoderManager', 'HardwareInfo', 'HardwareType',
+    'Converter', 'ConversionSettings', 'ConversionProgress',
+    'MediaAnalyzer', 'MediaInfo',
+    'FileValidator', 'ValidationResult', 'ValidationStatus', 'generate_output_path',
+    'QueueManager', 'Job', 'JobState',
 ]
-
-__version__ = '8.2.0'
+__version__ = '9.0.0'

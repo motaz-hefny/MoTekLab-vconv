@@ -1,7 +1,9 @@
 # vconv - Video Converter
 
 <p align="center">
-  <strong>A modern video conversion tool powered by HandBrakeCLI</strong>
+  <strong>A modern video conversion tool powered by HandBrakeCLI & PyQt6</strong>
+  <br>
+  <a href="https://moteklab.com">moteklab.com</a>
 </p>
 
 <p align="center">
@@ -17,16 +19,25 @@
 
 ## About
 
-**vconv** is a CLI-first video converter that scans folders and converts video files in place or to a new location. It's designed to work from any folder containing video files.
+**vconv** is a video converter GUI and CLI powered by HandBrakeCLI, built with PyQt6. Scan folders, convert video files in-place or to a new location, with hardware acceleration, subtitle handling, and a full conversion queue.
+
+Version: **9.1.0** (PyQt6 rewrite)
 
 ### Key Features
 
-- **CLI-First Design**: Run from any folder to scan and convert video files
-- **Smart Scanning**: Automatically finds video files in current directory and subdirectories
-- **Hardware Acceleration**: Auto-detects NVIDIA, Intel, and AMD GPUs
+- **PyQt6 GUI**: Modern, responsive interface with proper threading (no UI freezes)
+- **Hardware Acceleration**: Auto-detects NVIDIA NVENC, Intel QSV, AMD AMF
 - **Batch Processing**: Convert entire TV shows or movie collections
-- **In-Place Encoding**: Output files saved in the same location as source (default)
-- **Custom Quality Settings**: Your tuned HandBrakeCLI settings for best quality/size ratio
+- **Conversion Queue**: Add files to queue, process sequentially
+- **Real-time Progress**: Per-file and overall progress bars
+- **Folder Structure Preservation**: Source directory tree mirrored in output by default
+- **Subtitle Handling**: Embedded subtitle passthrough, external SRT/ASS/SSA import with per-file language tagging, burn-in support
+- **Audio Tracks**: Passthrough or re-encode (AAC, AC3, MP3, FLAC) with configurable bitrate
+- **CLI Interface**: Full command-line support for scripting and headless operation
+- **Custom Quality Settings**: Your tuned HandBrakeCLI x265 parameters applied by default
+- **Presets**: Fast, Balanced, High Quality, Archive, NVENC-optimized, TV Show
+- **File Validation & Analysis**: Check files before converting, view media metadata
+- **Comprehensive Help System**: Searchable help browser (F1), tooltips, What's This? context help (Shift+F1)
 
 ---
 
@@ -36,218 +47,167 @@
 
 ```bash
 # Ubuntu/Debian
-sudo apt-get install handbrake-cli ffmpeg python3-pysimplegui
+sudo apt-get install handbrake-cli ffmpeg python3-pyqt6
 
 # Fedora
-sudo dnf install handbrake-cli ffmpeg python3-pysimplegui
+sudo dnf install handbrake-cli ffmpeg python3-qt6
+
+# Arch
+sudo pacman -S handbrake ffmpeg python-pyqt6
+```
+
+```bash
+# Python dependencies
+pip install PyQt6 markdown
 ```
 
 ### 2. Clone and Install
 
 ```bash
-# Clone the repository
 git clone https://github.com/motaz-hefny/MoTekLab-vconv.git
 cd MoTekLab-vconv
-
-# Run installation (creates PATH entry and start menu)
 sudo python3 setup.py install
 ```
 
-### Installation Options
-
-The setup script will:
-- ✅ Create symlink in `/usr/local/bin` (adds to PATH - run `vconv` from anywhere)
-- ✅ Add to Start Menu under **Multimedia**
-- ✅ Ask to create Desktop shortcut (optional)
-
-### Manual Installation
+### Quick Start (No Install)
 
 ```bash
-# Add to PATH (requires sudo)
-sudo ln -s $(pwd)/vconv.py /usr/local/bin/vconv
-
-# Add to start menu
-sudo cp vconv.desktop /usr/local/share/applications/
+python3 vconv.py --gui           # Launch GUI
+python3 vconv.py --batch         # Batch convert current folder
+python3 vconv.py --help          # All command line options
 ```
 
-### Verify Installation
+---
 
-```bash
-# Test
-vconv --version
+## Documentation
 
-# Open GUI
-vconv --gui
+Full documentation is in the `docs/` folder:
+- **`docs/user_guide.md`** — Comprehensive user guide with CLI reference, setup, troubleshooting, FAQ
+- **`docs/future_plan.md`** — Roadmap of planned features from community requests
+
+Press **F1** in the GUI for the searchable help browser.
 
 ---
 
 ## Usage
 
-### Basic Usage
+### GUI Mode
 
 ```bash
-# Run from current folder (scans current directory and subfolders)
-./vconv.py
-
-# Launch GUI
-./vconv.py --gui
+python3 vconv.py                 # Launch with GUI (default)
+python3 vconv.py --gui           # Same as above
 ```
 
-### Folder Options
+### Batch Mode (Headless)
 
 ```bash
-# Specify input folder
-./vconv.py --folder_in /path/to/videos
+# Convert all videos in current folder (in-place)
+python3 vconv.py --batch
 
-# Convert to different output folder (preserves folder structure)
-./vconv.py --folder_in /mnt/movies --folder_out /mnt/converted
+# Specify input/output folders
+python3 vconv.py --folder_in /path/to/videos --folder_out /output --batch
 
-# Convert in place (default - same folder as source)
-./vconv.py --folder_in /home/user/videos
+# With custom settings
+python3 vconv.py -i /videos -O /output -q 23 -e nvenc_h265 -f mp4 --batch
 ```
 
-### Mode Options
+### Analyze Mode
 
 ```bash
-# Batch mode (non-interactive, converts all found files)
-./vconv.py --batch
-
-# Analyze files (show info without converting)
-./vconv.py --analyze
-
-# Launch GUI
-./vconv.py --gui
+python3 vconv.py --folder_in /path/to/videos --analyze
 ```
 
-### Encoding Options
-
-```bash
-# Quality (RF value: 0-51, lower=better quality, default: 27)
-./vconv.py --quality 27
-./vconv.py -q 23
-
-# Encoder selection
-./vconv.py --encoder nvenc_h265    # NVIDIA GPU
-./vconv.py --encoder x265           # CPU
-./vconv.py --encoder auto           # Auto-detect (default)
-
-# Output format
-./vconv.py --format mp4    # Default
-./vconv.py --format mkv
-
-# Use preset
-./vconv.py --preset balanced   # Your favorite settings
-./vconv.py --preset fast
-./vconv.py --preset archive
-```
-
-### Examples
-
-```bash
-# Convert TV show folder in place
-cd "/path/to/TV Show Season 1"
-./vconv.py --batch
-
-# Convert movies to new location with high quality
-./vconv.py --folder_in /mnt/movies --folder_out /mnt/converted --quality 23 --batch
-
-# Analyze a folder without converting
-./vconv.py --folder_in /home/user/videos --analyze
-
-# Use GPU encoding (if NVIDIA available)
-./vconv.py --encoder nvenc_h265 --batch
-
-# Quick convert with lower quality (smaller files)
-./vconv.py --quality 30 --batch
-```
-
----
-
-## Command Line Options
+### All CLI Options
 
 | Option | Short | Description | Default |
 |--------|-------|-------------|---------|
-| `--folder_in` | `-i` | Input folder to scan | current directory |
-| `--folder_out` | `-O` | Output folder (preserves structure) | same as source |
+| `--folder_in` | `-i` | Input folder | current directory |
+| `--folder_out` | `-O` | Output folder | same as source |
 | `--recursive` | `-r` | Scan subdirectories | true |
 | `--gui` | `-g` | Launch GUI | auto |
-| `--batch` | `-b` | Batch mode (no interaction) | disabled |
-| `--analyze` | `-a` | Analyze files only | disabled |
+| `--batch` | `-b` | Batch convert (non-interactive) | off |
+| `--analyze` | `-a` | Analyze only (ffprobe) | off |
 | `--encoder` | `-e` | Video encoder | auto |
 | `--quality` | `-q` | RF quality (0-51) | 27 |
 | `--preset` | `-p` | Use preset | none |
 | `--format` | `-f` | Output format (mp4/mkv) | mp4 |
 | `--audio_encoder` | `-ae` | Audio encoder | copy |
 | `--audio_bitrate` | `-ab` | Audio bitrate (kbps) | 128 |
-| `--debug` | `-d` | Enable debug logging | disabled |
-| `--help` | `-h` | Show help | - |
+| `--debug` | `-d` | Debug logging | off |
+| `--no-check` | | Skip dependency check | off |
+| `--reset` | | Reset config | off |
+| `--version` | `-v` | Show version | — |
 
 ---
 
 ## Encoders
 
-| Encoder | Type | Best For |
-|---------|------|----------|
-| **nvenc_h265** | NVIDIA GPU | Fast HEVC encoding |
-| **nvenc_h264** | NVIDIA GPU | Fast H.264 encoding |
-| **qsv_h265** | Intel iGPU | Quick Sync Video |
-| **qsv_h264** | Intel iGPU | Quick Sync Video |
-| **amf_h265** | AMD GPU | AMD hardware encoding |
-| **amf_h264** | AMD GPU | AMD hardware encoding |
-| **x265** | CPU | Quality-first HEVC (default) |
-| **x264** | CPU | Maximum compatibility |
-| **libsvtav1** | CPU | Modern AV1 codec |
+| Encoder | Type | Speed | Best For |
+|---------|------|-------|----------|
+| **nvenc_h265** | NVIDIA GPU | ⚡ Very Fast | Fast HEVC encoding |
+| **nvenc_h264** | NVIDIA GPU | ⚡ Very Fast | Fast H.264, compatibility |
+| **qsv_h265** | Intel GPU | ⚡ Fast | Low power HEVC |
+| **qsv_h264** | Intel GPU | ⚡ Fast | Low power H.264 |
+| **amf_h265** | AMD GPU | ⚡ Fast | AMD hardware encoding |
+| **amf_h264** | AMD GPU | ⚡ Fast | AMD H.264 encoding |
+| **x265** | CPU | 🐢 Slow | Best quality, compression |
+| **x264** | CPU | 🐢 Medium | Maximum compatibility |
+| **libsvtav1** | CPU | 🐢 Very Slow | Future-proof AV1 |
 
 ---
 
 ## Presets
 
-| Preset | Quality | Description |
-|--------|---------|-------------|
-| **fast** | RF 27 | Quick encoding, good balance |
-| **balanced** | RF 27 | Your personal favorite settings |
-| **high_quality** | RF 23 | Better quality |
-| **archive** | RF 20 | Best quality for storage |
-| **tv_show** | RF 27 | Optimized for TV shows |
-| **nvenc_fast** | RF 27 | Fast NVIDIA GPU |
-| **nvenc_balanced** | RF 25 | Balanced NVIDIA |
-| **nvenc_quality** | RF 22 | High quality NVIDIA |
-| **web_optimized** | RF 25 | Web/streaming |
-| **mobile** | RF 28 | Smaller files for mobile |
+| Preset | RF Quality | Speed | Description |
+|--------|-----------|-------|-------------|
+| fast | 27 | Fast | Quick encoding, balanced size |
+| balanced | 25 | Medium | Everyday use (default) |
+| high_quality | 22 | Slow | Better quality for important files |
+| archive | 20 | Slow | Best quality for long-term storage |
+| nvenc_fast | 27 | Very Fast | Quick NVIDIA GPU encoding |
+| nvenc_balanced | 25 | Fast | Balanced NVIDIA quality/speed |
+| nvenc_quality | 22 | Medium | High quality NVIDIA encoding |
+| tv_show | 24 | Medium | Optimized for television episodes |
 
 ---
 
-## Your Quality Settings
-
-The default settings include your tuned HandBrakeCLI parameters:
+## Project Structure
 
 ```
-cabac=1:ref=5:analyse=0x133:me=umh:subme=9:chroma-me=1:deadzone-inter=21:deadzone-intra=11:b-adapt=2:rc-lookahead=60:vbv-maxrate=10000:vbv-bufsize=10000:qpmax=69:bframes=5:direct=auto
+vconv/
+├── vconv.py              # Main entry point
+├── core/                 # Backend modules
+│   ├── converter.py      # HandBrakeCLI wrapper, subtitle args
+│   ├── encoder.py        # Hardware detection (NVENC/QSV/AMF)
+│   ├── analyzer.py       # ffprobe media analysis
+│   ├── validator.py      # File validation
+│   └── queue.py          # Job queue management
+├── ui/                   # GUI modules
+│   ├── main_window.py    # PyQt6 main window
+│   └── help_browser.py   # Searchable help browser
+├── utils/                # Utilities
+│   ├── config.py         # JSON config management
+│   ├── i18n.py           # Internationalization
+│   ├── logging.py        # Logging setup
+│   └── tools.py          # Dependency checker
+├── docs/                 # Documentation
+│   ├── user_guide.md     # Comprehensive user guide
+│   └── future_plan.md    # Feature roadmap
+├── presets/              # Preset files
+├── locales/              # Translation files
+├── CHANGELOG.md          # Version history
+└── README.md             # This file
 ```
-
-These are applied by default when using x265/x264 encoders.
 
 ---
 
 ## Requirements
 
-### System Requirements
-
 - **OS**: Linux (Ubuntu/Debian, Fedora, Arch)
 - **Python**: 3.8+
-
-### Required Dependencies
-
-```bash
-# Ubuntu/Debian
-sudo apt-get install handbrake-cli ffmpeg
-
-# Fedora
-sudo dnf install handbrake-cli ffmpeg
-
-# Arch
-sudo pacman -S handbrake ffmpeg
-```
+- **HandBrakeCLI**: Required for conversion (`apt install handbrake-cli`)
+- **ffprobe**: Recommended for analysis (`apt install ffmpeg`)
+- **PyQt6**: GUI framework (`pip install PyQt6`)
 
 ---
 
@@ -258,17 +218,24 @@ sudo pacman -S handbrake ffmpeg
 cat ~/.config/vconv/logs/vconv.log
 
 # Run with debug
-./vconv.py --debug --batch
+python3 vconv.py --debug --batch
+
+# Reset configuration
+python3 vconv.py --reset
+
+# Help in GUI
+Press F1 for help browser
+Press Shift+F1 then click any control for context help
 ```
 
 ---
 
 ## License
 
-[GPLv3](LICENSE) - Created by MoTekLab
+[GPLv3](LICENSE) — Created by MoTekLab
 
 ---
 
 <p align="center">
-  Made with ❤️
+  <a href="https://moteklab.com">moteklab.com</a> &middot; Made with ❤️
 </p>

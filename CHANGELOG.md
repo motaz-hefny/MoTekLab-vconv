@@ -7,6 +7,85 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [9.1.0] - 2026-05-16
+
+### Fixed
+- **Subtitle Passthrough**: Embedded subtitles now properly preserved using `--subtitle-lang-list` and `--all-subtitles`
+- **External Subtitle Language Tagging**: Each external SRT/ASS file gets its own language code via per-file tuples
+- **Multiple External Subtitles**: Fixed comma-separated format for `--srt-file`, `--srt-lang`, `--srt-default`, `--srt-burn`
+- **Folder Structure Preservation**: source_root is now the folder the user selected; computed common ancestor was too deep
+- **ConversionWorker arg mismatch**: preserve_structure bool was passed as 5th arg mapping to source_root — breaking all structure preservation
+- **Arabic/Non-Latin SRT Characters**: Added `--srt-codeset UTF-8` for external SRT files (HandBrakeCLI defaults to latin1)
+- **Help Browser Navigation**: Fixed heading ID mismatch — markdown toc extension generates different IDs than hardcoded anchors
+- **Help Browser Code Block Leakage**: Heading parser now skips content inside ``` fenced code blocks
+- **UI Layout Congestion**: Redesigned right panel with grouped sections (Files, Queue, Progress)
+- **Queue Workflow**: "Add to Queue" button in Files area; if no selection, adds all files
+- **Lambda Signal Handlers**: Fixed TypeError from PyQt6 signals passing bool to lambdas
+
+### Added
+- **Comprehensive Help System**:
+  - New `ui/help_browser.py` with tree index, search bar, back/forward navigation
+  - **Dual-language support**: English + Arabic (العربية) with RTL layout
+  - Language toggle combo inside the help browser
+  - Language selection in Settings menu
+  - Dynamic TOC generation from actual markdown headings
+  - Custom `_inject_heading_ids` to handle non-ASCII heading IDs (Arabic, Chinese)
+  - New `docs/user_guide.md` massively expanded: **75 headings, 14 categories, 59KB**
+  - New `docs/user_guide.ar.md`: Full Arabic translation: **60 headings, 14 categories**
+  - Every edge case, scenario, and example documented (CLI, errors, performance, FAQ)
+  - **Tooltips** on every interactive widget (encoder, quality, presets, audio, subtitles)
+  - **What's This?** context help (Shift+F1) on key widgets
+  - **F1** keyboard shortcut opens Help Browser
+  - Help menu restructured: User Guide (F1), What's This?, Keyboard Shortcuts, About
+  - About dialog includes moteklab.com website and F1/Shift+F1 instructions
+- **SRT UTF-8 Encoding**: External subtitle files pass `--srt-codeset UTF-8` for proper Arabic/Chinese rendering
+- **Per-File Subtitle Language**: Language dialog when adding external subtitles
+- **Website in About**: moteklab.com link added to the About dialog
+- **CLI Documentation**: Full command-line reference (22 options, examples, batch mode details) added to user_guide.md
+- **README Rewrite**: Comprehensive update reflecting all v9.1.0 changes, project structure, CLI reference, encoders table, presets table
+
+---
+
+## [9.0.0] - 2026-05-16
+
+### ⚠️ Breaking Changes
+
+- **GUI Framework**: Migrated from PySimpleGUI to PyQt6
+- **Threading Model**: Replaced event-loop threading with proper QThread workers
+- **Window Management**: Native Qt window management replaces PySimpleGUI workarounds
+
+### Added
+
+#### PyQt6 Migration
+- **QThread Workers**: Proper async conversion threading - no more UI freezes
+- **Native Layouts**: Dynamic, responsive layouts using Qt layout managers
+- **Tabbed Interface**: Files and Queue tabs for better organization
+- **Per-file Progress**: Individual progress bars for each file in conversion
+- **Queue Management**: Full job queue with start/pause/clear operations
+- **Toolbar Actions**: Quick access to common operations
+- **Menu System**: Native Qt menus with keyboard shortcuts
+
+#### Core Improvements
+- **ConversionWorker**: Dedicated QThread for HandBrakeCLI subprocess management
+- **Real-time Progress**: Signals/slots pattern for thread-safe UI updates
+- **QueueManager**: Persistent job queue with JSON storage
+- **Job States**: Pending, Running, Completed, Failed, Cancelled states
+- **File Table**: Detailed file list with size, duration, and status columns
+
+### Fixed
+- **UI Freezing**: Eliminated by moving conversion to background QThread
+- **Window Position**: Proper Qt geometry management
+- **Popup Errors**: Native Qt dialogs replace PySimpleGUI popups
+- **Cancel/Stop**: Clean worker cancellation with proper cleanup
+- **Linux Compatibility**: Native Qt6 eliminates all Linux-specific PySimpleGUI bugs
+
+### Removed
+- **PySimpleGUI Dependency**: Completely replaced with PyQt6
+- **Event-loop Threading Hack**: Replaced with proper QThread workers
+- **Window Workarounds**: Native Qt window management
+
+---
+
 ## [8.2.0] - 2026-05-16
 
 ### Fixed
