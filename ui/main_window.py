@@ -8,6 +8,7 @@ Features: Queue management, real progress, hardware acceleration, subtitle/audio
 import os
 import sys
 import threading
+import webbrowser
 from pathlib import Path
 from typing import Optional
 
@@ -31,6 +32,7 @@ from core.analyzer import MediaAnalyzer
 from core.queue import QueueManager, Job, JobState
 from ui.help_browser import HelpBrowser
 from utils.config import Config
+from utils.updater import check_for_updates, UpdateInfo
 from utils.i18n import I18n
 
 VIDEO_EXTENSIONS = {'.mkv', '.mp4', '.avi', '.mov', '.webm', '.wmv', '.flv', '.m4v', '.mpg', '.mpeg', '.ts', '.m2ts', '.mts', '.vob'}
@@ -108,6 +110,21 @@ class ConversionWorker(QThread):
             self._converter.cancel()
 
 
+class UpdateCheckWorker(QThread):
+    """Background worker for checking GitHub releases."""
+    update_found = pyqtSignal(object)
+    check_done = pyqtSignal()
+
+    def __init__(self, current_version):
+        super().__init__()
+        self.current_version = current_version
+
+    def run(self):
+        info = check_for_updates(self.current_version)
+        self.update_found.emit(info)
+        self.check_done.emit()
+
+
 class MainWindow(QMainWindow):
     """Main application window using PyQt6."""
 
@@ -145,6 +162,7 @@ class MainWindow(QMainWindow):
         self._setup_ui()
         self._load_window_geometry()
         self._refresh_queue_table()
+        self._check_for_updates_startup()
 
     def _build_encoder_map(self):
         available = self.encoder_manager.get_available_encoders()
@@ -248,6 +266,12 @@ class MainWindow(QMainWindow):
 
         help_menu.addSeparator()
         help_menu.addAction("&Keyboard Shortcuts", self._show_shortcuts)
+
+        help_menu.addSeparator()
+        act_update = QAction("🔄 &Check for Updates", self)
+        act_update.triggered.connect(lambda: self._check_for_updates_now())
+        act_update.setToolTip("Check GitHub for a newer version of vconv")
+        help_menu.addAction(act_update)
 
         help_menu.addSeparator()
         help_menu.addAction("&About vconv", self._show_about)
@@ -1080,6 +1104,48 @@ class MainWindow(QMainWindow):
             if lang == 'en' else
             "تم تغيير اللغة. أعد فتح التطبيق للتأثير الكامل.\n"
             "متصفح المساعدة سيستخدم اللغة الجديدة فوراً.")
+
+    def _check_for_updates_startup(self):
+        enabled = self.config.get('general', 'check_updates', True)
+        if not enabled:
+            return
+        worker = UpdateCheckWorker("9.1.0")
+        worker.update_found.connect(self._on_update_check_result)
+        worker.start()
+
+    def _check_for_updates_now(self):
+        worker = UpdateCheckWorker("9.1.0")
+        worker.update_found.connect(self._on_update_check_result)
+        self.status_label.setText("🔍 Checking for updates...")
+        worker.start()
+
+    def _on_update_check_result(self, info: UpdateInfo):
+        if info.available:
+            self._show_update_dialog(info)
+        elif info.error:
+            self.status_label.setText(f"ℹ️ Update check failed: {info.error}")
+        else:
+            self.status_label.setText(f"✅ vconv v{info.current_version} is up to date")
+
+    def _show_update_dialog(self, info: UpdateInfo):
+        dlg = QMessageBox(self)
+        dlg.setWindowTitle("Update Available")
+        dlg.setText(
+            f"<h3>🚀 vconv v{info.latest_version} Available</h3>"
+            f"<p>You have <b>v{info.current_version}</b>. "
+            f"The latest is <b>v{info.latest_version}</b>.</p>"
+            f"<hr>"
+            f"<p><b>Release notes:</b><br>{info.release_notes[:300]}</p>"
+            f"<hr>"
+            f"<p>Click Download to open the release page in your browser.</p>"
+        )
+        dlg.setTextFormat(Qt.TextFormat.RichText)
+        download_btn = dlg.addButton("⬇️ Download Update", QMessageBox.ButtonRole.AcceptRole)
+        dlg.addButton("Later", QMessageBox.ButtonRole.RejectRole)
+        dlg.exec()
+        if dlg.clickedButton() == download_btn:
+            import webbrowser
+            webbrowser.open(info.release_url)
 
     def _show_shortcuts(self):
         QMessageBox.information(self, "Keyboard Shortcuts",
