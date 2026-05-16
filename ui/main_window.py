@@ -252,6 +252,15 @@ class MainWindow(QMainWindow):
         act_lang_ar.triggered.connect(lambda: self._set_language('ar'))
         lang_menu.addAction(act_lang_ar)
 
+        settings_menu.addSeparator()
+        self.act_update_check = QAction("✅ Check for Updates on Startup", self)
+        update_enabled = self.config.get('general', 'check_updates', True)
+        self.act_update_check.setChecked(update_enabled)
+        self.act_update_check.setCheckable(True)
+        self.act_update_check.setChecked(update_enabled)
+        self.act_update_check.triggered.connect(self._toggle_update_check)
+        settings_menu.addAction(self.act_update_check)
+
         help_menu = menubar.addMenu("&Help")
         act_help_browser = QAction("📖 &User Guide (Help Browser)", self)
         act_help_browser.setShortcut(QKeySequence("F1"))
@@ -1105,6 +1114,11 @@ class MainWindow(QMainWindow):
             if lang == 'en' else
             "تم تغيير اللغة. أعد فتح التطبيق للتأثير الكامل.\n"
             "متصفح المساعدة سيستخدم اللغة الجديدة فوراً.")
+
+    def _toggle_update_check(self, checked):
+        self.config.set('general', 'check_updates', checked)
+        self.config.save()
+        self.act_update_check.setText(f"{'✅' if checked else '☐'} Check for Updates on Startup")
 
     def _check_for_updates_startup(self):
         enabled = self.config.get('general', 'check_updates', True)
