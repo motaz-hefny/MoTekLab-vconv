@@ -73,7 +73,7 @@ Examples:
 
 def show_version():
     print("vconv - Video Converter")
-    print("Version: 9.1.0")
+    print("Version: 9.2.0")
     print("License: GPLv3")
     print("Powered by HandBrakeCLI")
 
@@ -175,7 +175,7 @@ def main():
 
     log_level = logging.DEBUG if args.debug else logging.INFO
     logger = setup_logging(level=log_level)
-    logger.info(f"Starting vconv v9.1.0...")
+    logger.info(f"Starting vconv v9.2.0...")
     logger.info(f"Input folder: {input_folder}")
 
     config = Config()

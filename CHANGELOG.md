@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [9.2.0] - 2026-05-16
+
+### Added
+- **Update Checker** (`utils/updater.py`): Background GitHub release check on startup, Check for Updates in Help menu, update dialog with release notes and direct download link, 24-hour cache
+- **Check for Updates Toggle**: Settings menu checkable item (persists in config)
+- **App Icon**: Custom neon-glass icon set as window, taskbar, and desktop file icon
+- **About Dialog Banner**: Custom banner in redesigned About dialog
+- **GitHub Social Preview**: Uploaded to release assets
+- **Image Asset System**: `_asset_path()` helper for dev/.deb/AppImage modes
+- **public/README.md**: Google Imagen-optimized prompts for all 6 image assets
+- **Release Build Documentation**: `docs/release_process.md`
+
+### Changed
+- **Version**: 9.1.0 → 9.2.0
+- **About Dialog**: Custom QDialog with banner, hardware info, website link
+- **Desktop File**: Points to icon at `/opt/vconv/vconv-icon-256.png`
+- **Release Artifacts**: .deb and AppImage bundle icons and banner
+
+---
+
 ## [9.1.0] - 2026-05-16
 
 ### Fixed

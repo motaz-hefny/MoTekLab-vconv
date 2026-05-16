@@ -1,5 +1,5 @@
 """
-vconv Main Window UI v9.1.0
+vconv Main Window UI v9.2.0
 
 PyQt6-based interface for video conversion.
 Features: Queue management, real progress, hardware acceleration, subtitle/audio management.
@@ -198,7 +198,7 @@ class MainWindow(QMainWindow):
         return encoder_map
 
     def _setup_ui(self):
-        self.setWindowTitle("vconv - Video Converter v9.1.0")
+        self.setWindowTitle("vconv - Video Converter v9.2.0")
         icon_path = _asset_path("vconv-icon-256.png")
         if icon_path.exists():
             self.setWindowIcon(QIcon(str(icon_path)))
@@ -698,7 +698,7 @@ class MainWindow(QMainWindow):
 
     def _update_status_bar(self):
         hw = self.encoder_manager.get_hardware_name()
-        self.status_bar.showMessage(f"vconv v9.1.0 | {hw} | Files: {len(self.files)} | Queue: {len(self.queue_manager.jobs)} | Quality: RF {self.quality}")
+        self.status_bar.showMessage(f"vconv v9.2.0 | {hw} | Files: {len(self.files)} | Queue: {len(self.queue_manager.jobs)} | Quality: RF {self.quality}")
 
     def _load_window_geometry(self):
         x = self.config.get('ui', 'window_x')
@@ -1146,12 +1146,12 @@ class MainWindow(QMainWindow):
         enabled = self.config.get('general', 'check_updates', True)
         if not enabled:
             return
-        self._update_worker = UpdateCheckWorker("9.1.0")
+        self._update_worker = UpdateCheckWorker("9.2.0")
         self._update_worker.update_found.connect(self._on_update_check_result)
         self._update_worker.start()
 
     def _check_for_updates_now(self):
-        self._update_worker = UpdateCheckWorker("9.1.0")
+        self._update_worker = UpdateCheckWorker("9.2.0")
         self._update_worker.update_found.connect(self._on_update_check_result)
         self.status_label.setText("🔍 Checking for updates...")
         self._update_worker.start()
@@ -1222,7 +1222,7 @@ class MainWindow(QMainWindow):
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         info_layout.addWidget(title)
 
-        info_layout.addWidget(QLabel(f"<b>Version:</b> 9.1.0 &nbsp;|&nbsp; <b>License:</b> GPLv3"))
+        info_layout.addWidget(QLabel(f"<b>Version:</b> 9.2.0 &nbsp;|&nbsp; <b>License:</b> GPLv3"))
         info_layout.addWidget(QLabel(f"🖥️ <b>Hardware:</b> {hw}"))
         info_layout.addWidget(QLabel(f"⚡ <b>Recommended:</b> {recommended}"))
         info_layout.addWidget(QLabel("Powered by HandBrakeCLI &nbsp;|&nbsp; Built with PyQt6"))
@@ -1254,7 +1254,7 @@ class MainWindow(QMainWindow):
 def launch(config: Config, i18n: I18n, args=None, encoder_manager=None):
     app = QApplication(sys.argv)
     app.setApplicationName("vconv")
-    app.setApplicationVersion("9.1.0")
+    app.setApplicationVersion("9.2.0")
     icon_path = _asset_path("vconv-icon-256.png")
     if icon_path.exists():
         app.setWindowIcon(QIcon(str(icon_path)))
