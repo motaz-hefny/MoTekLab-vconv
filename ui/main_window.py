@@ -142,6 +142,7 @@ class MainWindow(QMainWindow):
         self.source_root = None
         self.is_converting = False
         self.worker = None
+        self._update_worker = None
 
         self.quality = self.config.get('defaults', 'quality', 27)
         self.encoder = self.config.get('defaults', 'encoder', 'auto')
@@ -1109,15 +1110,15 @@ class MainWindow(QMainWindow):
         enabled = self.config.get('general', 'check_updates', True)
         if not enabled:
             return
-        worker = UpdateCheckWorker("9.1.0")
-        worker.update_found.connect(self._on_update_check_result)
-        worker.start()
+        self._update_worker = UpdateCheckWorker("9.1.0")
+        self._update_worker.update_found.connect(self._on_update_check_result)
+        self._update_worker.start()
 
     def _check_for_updates_now(self):
-        worker = UpdateCheckWorker("9.1.0")
-        worker.update_found.connect(self._on_update_check_result)
+        self._update_worker = UpdateCheckWorker("9.1.0")
+        self._update_worker.update_found.connect(self._on_update_check_result)
         self.status_label.setText("🔍 Checking for updates...")
-        worker.start()
+        self._update_worker.start()
 
     def _on_update_check_result(self, info: UpdateInfo):
         if info.available:
