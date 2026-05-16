@@ -43,6 +43,9 @@ cp utils/*.py "$BUILD/opt/vconv/utils/"
 cp docs/*.md "$BUILD/opt/vconv/docs/"
 cp presets/*.json "$BUILD/opt/vconv/presets/"
 cp locales/*.json "$BUILD/opt/vconv/locales/"
+cp public/vconv-icon-256.png "$BUILD/opt/vconv/"
+cp public/vconv-about-banner.png "$BUILD/opt/vconv/"
+cp public/vconv-logo-512.png "$BUILD/opt/vconv/"
 cp CHANGELOG.md README.md LICENSE "$BUILD/usr/local/share/doc/vconv/"
 
 # Create wrapper

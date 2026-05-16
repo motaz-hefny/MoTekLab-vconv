@@ -23,7 +23,7 @@ from PyQt6.QtWidgets import (
     QWhatsThis
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSize
-from PyQt6.QtGui import QAction, QFont, QKeySequence
+from PyQt6.QtGui import QAction, QFont, QKeySequence, QIcon, QPixmap
 
 from core.encoder import EncoderManager
 from core.converter import Converter, ConversionSettings, ConversionProgress
@@ -180,6 +180,9 @@ class MainWindow(QMainWindow):
 
     def _setup_ui(self):
         self.setWindowTitle("vconv - Video Converter v9.1.0")
+        icon_path = Path(__file__).parent.parent / "public" / "vconv-icon-256.png"
+        if icon_path.exists():
+            self.setWindowIcon(QIcon(str(icon_path)))
         self.setMinimumSize(1100, 700)
         self.resize(1250, 800)
 
@@ -1178,25 +1181,64 @@ class MainWindow(QMainWindow):
     def _show_about(self):
         hw = self.encoder_manager.get_hardware_name()
         recommended = self.encoder_manager.get_recommended_encoder()
-        QMessageBox.information(self, "About vconv",
-            f"<h3>vconv - Video Converter</h3>"
-            f"<p>Version: 9.1.0<br>License: GPLv3</p>"
-            f"<p>🖥️ <b>Hardware:</b> {hw}<br>"
-            f"   <b>Recommended:</b> {recommended}</p>"
-            f"<p>Powered by HandBrakeCLI<br>"
-            f"Built with Python & PyQt6</p>"
-            f"<hr>"
-            f"<p><b>🌐 <a href='https://moteklab.com'>moteklab.com</a></b></p>"
-            f"<hr>"
-            f"<p>Press <b>F1</b> for the full User Guide<br>"
-            f"Press <b>Shift+F1</b> then click any control for context help</p>"
-            f"<p><small>© 2026 MoTekLab</small></p>")
+        dlg = QDialog(self)
+        dlg.setWindowTitle("About vconv")
+        dlg.setFixedSize(500, 450)
+        layout = QVBoxLayout(dlg)
+        layout.setSpacing(0)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        banner_path = Path(__file__).parent.parent / "public" / "vconv-about-banner.png"
+        if banner_path.exists():
+            banner = QLabel()
+            pixmap = QPixmap(str(banner_path))
+            banner.setPixmap(pixmap.scaled(500, 170, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+            layout.addWidget(banner)
+
+        info_layout = QVBoxLayout()
+        info_layout.setSpacing(6)
+        info_layout.setContentsMargins(20, 15, 20, 15)
+
+        title = QLabel("<h2>vconv - Video Converter</h2>")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        info_layout.addWidget(title)
+
+        info_layout.addWidget(QLabel(f"<b>Version:</b> 9.1.0 &nbsp;|&nbsp; <b>License:</b> GPLv3"))
+        info_layout.addWidget(QLabel(f"🖥️ <b>Hardware:</b> {hw}"))
+        info_layout.addWidget(QLabel(f"⚡ <b>Recommended:</b> {recommended}"))
+        info_layout.addWidget(QLabel("Powered by HandBrakeCLI &nbsp;|&nbsp; Built with PyQt6"))
+
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setFrameShadow(QFrame.Shadow.Sunken)
+        info_layout.addWidget(sep)
+
+        website = QLabel('<a href="https://moteklab.com" style="color: #00B4D8;">🌐 moteklab.com</a>')
+        website.setOpenExternalLinks(True)
+        website.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        info_layout.addWidget(website)
+
+        info_layout.addWidget(QLabel("<small>Press <b>F1</b> for help &nbsp;|&nbsp; <b>Shift+F1</b> for context help</small>"))
+        info_layout.addWidget(QLabel("<small>© 2026 MoTekLab</small>"))
+
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(dlg.close)
+        btn_layout.addWidget(close_btn)
+        info_layout.addLayout(btn_layout)
+
+        layout.addLayout(info_layout)
+        dlg.exec()
 
 
 def launch(config: Config, i18n: I18n, args=None, encoder_manager=None):
     app = QApplication(sys.argv)
     app.setApplicationName("vconv")
     app.setApplicationVersion("9.1.0")
+    icon_path = Path(__file__).parent.parent / "public" / "vconv-icon-256.png"
+    if icon_path.exists():
+        app.setWindowIcon(QIcon(str(icon_path)))
     window = MainWindow(config, i18n, args, encoder_manager)
     window.show()
     sys.exit(app.exec())
