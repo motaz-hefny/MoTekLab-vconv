@@ -52,3 +52,4 @@ htmlcov/
 *.deb
 *.AppImage
 *.tar.gz/dist/
+public/*.png
