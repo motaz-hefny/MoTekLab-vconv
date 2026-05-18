@@ -1,12 +1,12 @@
 [Desktop Entry]
-Version=9.2.2
+Version=1.0
 Name=MoTekLab Video Encoder
-Comment=A modern video converter powered by HandBrakeCLI & PyQt6
+Comment=v9.3.2 | A modern video converter powered by HandBrakeCLI & PyQt6
 Exec=python3 /opt/vconv/vconv.py --gui
-Icon=/opt/vconv/vconv-icon-256.png
+Icon=vconv
 Terminal=false
 Type=Application
 Categories=AudioVideo;Video;
 Keywords=video;convert;handbrake;encoder;convert;hevc;h265;
 StartupNotify=true
-StartupWMClass=MoTekLab Video Encoder
+StartupWMClass=vconv

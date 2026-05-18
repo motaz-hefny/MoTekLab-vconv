@@ -207,12 +207,23 @@ def generate_output_path(
     output_ext = f".{format}"
     output_path = os.path.join(output_dir, input_stem + output_ext)
 
-    # Handle conflicts
-    if conflict_mode == "rename" and os.path.exists(output_path):
+    # If the output would be the same file as the input (same dir, same extension),
+    # always rename to avoid HandBrakeCLI reading from and writing to the same path.
+    same_as_input = (os.path.normpath(output_path) == os.path.normpath(input_path))
+
+    if same_as_input or (conflict_mode == "rename" and os.path.exists(output_path)):
         counter = 1
-        while os.path.exists(output_path):
-            output_path = os.path.join(output_dir, f"{input_stem}_{counter}{output_ext}")
-            counter += 1
+        while True:
+            candidate = os.path.join(output_dir, f"{input_stem}_{counter}{output_ext}")
+            # Skip if it would still collide with the input
+            if os.path.normpath(candidate) == os.path.normpath(input_path):
+                counter += 1
+                continue
+            if conflict_mode == "rename" and os.path.exists(candidate):
+                counter += 1
+                continue
+            output_path = candidate
+            break
 
     return output_path
 

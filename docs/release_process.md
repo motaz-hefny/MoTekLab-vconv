@@ -34,6 +34,8 @@ done
 mkdir -p "$BUILD/usr/local/bin"
 mkdir -p "$BUILD/usr/local/share/applications"
 mkdir -p "$BUILD/usr/local/share/doc/vconv"
+# Icon for XDG icon theme (needed for `Icon=vconv` in desktop file)
+mkdir -p "$BUILD/usr/local/share/icons/hicolor/256x256/apps"
 
 # Copy files
 cp vconv.py "$BUILD/opt/vconv/"
@@ -44,6 +46,7 @@ cp docs/*.md "$BUILD/opt/vconv/docs/"
 cp presets/*.json "$BUILD/opt/vconv/presets/"
 cp locales/*.json "$BUILD/opt/vconv/locales/"
 cp public/vconv-icon-256.png "$BUILD/opt/vconv/"
+cp public/vconv-icon-256.png "$BUILD/usr/local/share/icons/hicolor/256x256/apps/vconv.png"
 cp public/vconv-about-banner.png "$BUILD/opt/vconv/"
 cp public/vconv-logo-512.png "$BUILD/opt/vconv/"
 cp CHANGELOG.md README.md LICENSE "$BUILD/usr/local/share/doc/vconv/"
@@ -93,12 +96,13 @@ mkdir -p /tmp/vconv-build/vconv.AppDir
 cp /tmp/vconv-appimage/vconv /tmp/vconv-build/vconv.AppDir/AppRun
 chmod +x /tmp/vconv-build/vconv.AppDir/AppRun
 
+cp public/vconv-icon-256.png /tmp/vconv-build/vconv.AppDir/
 cat > /tmp/vconv-build/vconv.AppDir/vconv.desktop << 'DESKTOP'
 [Desktop Entry]
-Name=vconv
-Comment=Video Converter powered by HandBrakeCLI
+Name=MoTekLab Video Encoder
+Comment=A modern video converter powered by HandBrakeCLI & PyQt6
 Exec=AppRun
-Icon=vconv
+Icon=vconv-icon-256
 Terminal=false
 Type=Application
 Categories=AudioVideo;Video;

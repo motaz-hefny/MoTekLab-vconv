@@ -456,13 +456,23 @@ When re-encoding, the audio is typically downmixed to stereo unless your encoder
 
 ### Embedded Subtitles Mode
 
+This controls which built-in subtitle tracks from your source file are kept in the output.
+
 | Mode | Behavior | Use Case |
 |------|----------|----------|
-| **Copy** | Keep source subtitles matching the **Language Filter** | You want specific language subs |
-| **All** | Keep ALL embedded subtitle tracks | Every subtitle is preserved |
-| **None** | Remove ALL subtitles from output | Clean video, no subs |
+| **Copy** | Pass through only subtitles whose language matches the **Language Filter** list. Tracks in other languages are dropped. | You want only specific languages (e.g., English + Arabic). **This is the recommended default.** |
+| **All** | Keep EVERY subtitle track from the source, ignoring the Language Filter entirely. | You want commentary tracks, forced subs in unexpected languages, or "everything just in case". |
+| **None** | Remove ALL subtitles from the output file. | Clean video for sharing, no subtitle metadata needed. |
 
-**Important:** HandBrakeCLI does NOT include subtitles by default. You must explicitly select "Copy" or "All" to keep them.
+**Important:** HandBrakeCLI does NOT include subtitles by default. You must select **Copy** or **All** to keep them.
+
+**How copy vs all work with the Language Filter:**
+
+| Scenario | Copy | All |
+|----------|------|-----|
+| Languages set to `eng,ara` | Only English + Arabic tracks pass through | Every track passes through (ignores filter) |
+| Languages left blank | No tracks pass through (filter is empty, nothing matches) | Every track passes through |
+| Source has English, Arabic, French, German subs | Only English + Arabic appear in output | All 4 languages appear in output |
 
 ### Language Filter
 
@@ -549,6 +559,80 @@ When both embedded and external subtitles are present, the track order in the ou
 1. Embedded subtitles (from the source file)
 2. External SRT files (in the order you added them)
 3. External ASS/SSA files (in the order you added them)
+
+---
+
+## Metadata Preservation
+
+The application can preserve source file metadata (titles, dates, genres, cover art, TV show info, and custom tags) after encoding. This is enabled by default via the **"Preserve metadata from source"** checkbox in the left panel.
+
+Unlike HandBrakeCLI's native `--preserve-metadata` flag (which requires HandBrakeCLI ≥ 1.8.0), this feature works on **any HandBrakeCLI version** by running post-processing after encoding completes.
+
+### How It Works
+
+The system uses a **4-strategy fallback chain**:
+
+| Strategy | Source Type | Method | What's Preserved |
+|----------|------------|--------|-----------------|
+| **Binary ilst replacement** | MP4 (local) | Byte-for-byte copy of `ilst` atom from source to output | All metadata, including `----` freeform atoms (iTunEXTC, iTunMOVI), cover art, custom 4-byte codes |
+| **Built ilst from tags** | Non-MP4 (MKV, etc.) | ffprobe extracts tags → mapped to Apple iTunes codes → injected as `ilst` atom | Standard tags + cover art + freeform atoms for non-standard keys |
+| **ffmpeg map_metadata** | Any | `ffmpeg -map_metadata` from source to output | Most common tags but may drop custom/freeform atoms |
+| **Explicit metadata flags** | Any (fallback) | ffprobe extracts tags → applied with `ffmpeg -metadata key=value` | Only tags that exist in the file |
+
+### MKV to MP4 Metadata
+
+When transcoding from MKV (Matroska) to MP4, HandBrakeCLI drops most metadata — especially custom tags like `DIRECTOR`, `WRITTEN_BY`, `ACTOR`, `LAW_RATING`, and TV show fields.
+
+The **built ilst** strategy handles this by:
+
+1. **Probing** the source with ffprobe to extract all format tags
+2. **Mapping** known MKV keys to Apple iTunes 4-byte atom codes:
+
+   | MKV Tag | Apple Atom | Displayed As |
+   |---------|-----------|-------------|
+   | `TITLE` | `©nam` | Title |
+   | `ARTIST` | `©ART` | Artist |
+   | `DATE_RELEASED` / `DATE_RELEASE` | `©day` | Date / Release Date |
+   | `COLLECTION/TITLE` | `tvsh` | Show Name |
+   | `SEASON/PART_NUMBER` / `SEASON.PART_NUM` | `tvsn` | Season Number |
+   | `EPISODE/PART_NUMBER` / `EPISODE.PART_NUM` | `tves` | Episode Number |
+   | `EPISODE/TITLE` | `tven` | Episode ID (Title) |
+   | `GENRE` | `©gen` | Genre |
+   | `DESCRIPTION` | `desc` | Description |
+   | `SUMMARY` / `SYNOPSIS` | `ldes` | Long Description |
+   | `ACTOR`, `DIRECTOR`, `WRITTEN_BY`, etc. | `----` | Freeform (`com.apple.iTunes`) |
+
+3. **Injecting** the built `ilst` atom directly into the output file's `moov > udta > meta > ilst` path
+
+### Cover Art (Poster)
+
+Cover art embedded in MKV sources is extracted and preserved:
+
+- **Detection**: Checks for attachments, `attached_pic` disposition, and MJPEG/PNG video streams with "cover"/"poster" in the filename
+- **Extraction**: Uses ffmpeg `-map 0:{idx} -c copy` to extract the image stream
+- **Injection**: Embedded as a `covr` data atom (type flags: 0xD for JPEG, 0xE for PNG) at the front of the `ilst` atom
+
+### MP4 to MP4 Metadata
+
+When both source and output are MP4, the **binary ilst replacement** copies the entire `ilst` atom byte-for-byte from the source into the output. This is the most reliable method because it preserves literally everything — including custom `----` atoms that ffmpeg would drop.
+
+### Faststart (Web-Optimized)
+
+After metadata injection, a **pure-Python faststart** relocates the `moov` atom from the end of the file to the front. This:
+
+- Enables streaming playback (video starts immediately without downloading the whole file)
+- Preserves ALL atom content (unlike ffmpeg's `-movflags +faststart` which re-parses and drops non-standard atoms)
+- Updates `stco` (32-bit) and `co64` (64-bit) chunk offset tables for correct playback
+
+### Disabling Metadata Preservation
+
+To speed up processing when metadata isn't needed:
+
+1. Find the **"Preserve metadata from source"** checkbox in the left settings panel
+2. **Uncheck** it
+3. Encoding will complete faster without the post-processing step
+
+The toggle is per-session; it defaults to enabled.
 
 ---
 

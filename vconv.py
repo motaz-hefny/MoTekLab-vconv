@@ -23,6 +23,7 @@ from utils.i18n import I18n
 from utils.tools import DependencyChecker
 from core.encoder import EncoderManager
 from core.converter import Converter, ConversionSettings
+from core.handbrake_manager import HandBrakeManager
 from core.validator import FileValidator, generate_output_path
 from core.analyzer import MediaAnalyzer
 from core.queue import QueueManager
@@ -121,7 +122,19 @@ def convert_files_cli(files: list, args, logger, encoder_manager):
         audio_bitrate=args.audio_bitrate if args.audio_encoder != 'copy' else None,
         output_format=args.format
     )
-    converter = Converter(encoder_manager)
+    hb_manager = HandBrakeManager()
+    if not hb_manager.detect():
+        print("❌ HandBrakeCLI not found. Install it first:")
+        print("   flatpak install flathub fr.handbrake.ghb")
+        sys.exit(1)
+    settings = ConversionSettings(
+        encoder=encoder, quality=args.quality,
+        audio_encoder=args.audio_encoder,
+        audio_bitrate=args.audio_bitrate if args.audio_encoder != 'copy' else None,
+        output_format=args.format
+    )
+    settings.metadata_preserve_flag = hb_manager.metadata_flag()
+    converter = Converter(encoder_manager, hb_manager.get_command())
     total = len(files)
     success = 0
     failed = 0

@@ -21,7 +21,7 @@
 
 **MoTekLab Video Encoder** (formerly vconv) is a video converter GUI and CLI powered by HandBrakeCLI, built with PyQt6. Scan folders, convert video files in-place or to a new location, with hardware acceleration, subtitle handling, and a full conversion queue.
 
-Version: **9.2.2** (PyQt6 rewrite)
+Version: **9.6.1** (metadata preservation, cover art, pure-Python faststart)
 
 ### Key Features
 
@@ -31,7 +31,12 @@ Version: **9.2.2** (PyQt6 rewrite)
 - **Conversion Queue**: Add files to queue, process sequentially
 - **Real-time Progress**: Per-file and overall progress bars
 - **Folder Structure Preservation**: Source directory tree mirrored in output by default
-- **Subtitle Handling**: Embedded subtitle passthrough, external SRT/ASS/SSA import with per-file language tagging, burn-in support
+- **Metadata Preservation**: Automatic source metadata preservation (title, date, genre, posters, TV show tags, custom iTunes atoms). Works on all sources (MP4, MKV) and all HandBrakeCLI versions
+  - **Binary ilst replacement**: Byte-for-byte metadata copy for MP4 sources — preserves everything including `----` freeform atoms and cover art
+  - **Programmatic ilst builder**: For non-MP4 sources (MKV), builds complete Apple `ilst` atom from ffprobe tags with proper 4-byte codes (©nam, ©ART, tvsh, tvsn, tves, tven)
+  - **Cover art**: Extracts embedded cover art (JPEG/PNG) and injects as `covr` atom
+  - **Pure-Python faststart**: Moves `moov` atom to front without re-encoding — preserves all metadata (unlike ffmpeg's faststart which drops custom atoms)
+  - **Works on network mounts**: Full pipeline works on GVFS/SMB shares via local caching
 - **Audio Tracks**: Passthrough or re-encode (AAC, AC3, MP3, FLAC) with configurable bitrate
 - **CLI Interface**: Full command-line support for scripting and headless operation
 - **Custom Quality Settings**: Your tuned HandBrakeCLI x265 parameters applied by default
@@ -180,11 +185,12 @@ vconv/
 ├── vconv.py              # Main entry point
 ├── core/                 # Backend modules
 │   ├── constants.py      # Shared constants (video extensions, etc.)
-│   ├── converter.py      # HandBrakeCLI wrapper, subtitle args
+│   ├── converter.py      # HandBrakeCLI wrapper, metadata preservation, ilst builder
 │   ├── encoder.py        # Hardware detection (NVENC/QSV/AMF)
 │   ├── analyzer.py       # ffprobe media analysis
 │   ├── validator.py      # File validation
-│   └── queue.py          # Job queue management
+│   ├── queue.py          # Job queue management
+│   └── handbrake_manager.py # HB detection, install, update via apt
 ├── ui/                   # GUI modules
 │   ├── main_window.py    # PyQt6 main window
 │   └── help_browser.py   # Searchable help browser
@@ -194,6 +200,7 @@ vconv/
 │   ├── i18n.py           # Internationalization
 │   ├── logging.py        # Logging setup
 │   ├── updater.py        # GitHub release update checker
+│   ├── xdg_integration.py # Auto-install desktop file/icons for start menu
 │   └── tools.py          # Dependency checker
 ├── legacy/               # Legacy Bash scripts (archived)
 ├── docs/                 # Documentation

@@ -30,9 +30,12 @@ class MediaInfo:
     audio_codec: Optional[str] = None
     audio_bitrate: Optional[str] = None
     audio_channels: Optional[str] = None
+    audio_streams: list = None
     subtitle_streams: list = None
 
     def __post_init__(self):
+        if self.audio_streams is None:
+            self.audio_streams = []
         if self.subtitle_streams is None:
             self.subtitle_streams = []
 
@@ -127,14 +130,17 @@ class MediaAnalyzer:
         )
 
         # Format info (duration, bitrate)
+        fmt_bitrate_fallback = None
         if 'format' in data:
             fmt = data['format']
             if 'duration' in fmt:
                 info.duration = self._format_duration(float(fmt['duration']))
             if 'bit_rate' in fmt:
                 info.video_bitrate = self._format_bitrate(int(fmt['bit_rate']))
+                fmt_bitrate_fallback = int(fmt['bit_rate'])
 
         # Stream info
+        audio_streams = []
         subtitle_streams = []
 
         for stream in data.get('streams', []):
@@ -156,13 +162,39 @@ class MediaAnalyzer:
                         pass
 
             elif codec_type == 'audio':
-                info.audio_codec = stream.get('codec_name', '').upper()
+                a_codec = stream.get('codec_name', '').upper()
+                a_bitrate = None
                 if 'bit_rate' in stream:
-                    info.audio_bitrate = self._format_bitrate(int(stream['bit_rate']))
+                    a_bitrate = self._format_bitrate(int(stream['bit_rate']))
+                else:
+                    tags = stream.get('tags', {})
+                    bps = tags.get('BPS') or tags.get('BPS-eng') or next(
+                        (v for k, v in tags.items() if k.upper().startswith('BPS')), None
+                    )
+                    if bps:
+                        a_bitrate = self._format_bitrate(int(bps))
+                    elif fmt_bitrate_fallback:
+                        a_bitrate = f"≈{self._format_bitrate(fmt_bitrate_fallback)} (total)"
                 channels = stream.get('channels')
+                a_channels = None
                 if channels:
                     ch_layout = stream.get('channel_layout', 'unknown')
-                    info.audio_channels = f"{channels}ch ({ch_layout})"
+                    a_channels = f"{channels}ch ({ch_layout})"
+                a_lang = stream.get('tags', {}).get('language', 'unknown')
+                a_title = stream.get('tags', {}).get('title', '')
+                audio_streams.append({
+                    'index': stream.get('index'),
+                    'codec': a_codec,
+                    'bitrate': a_bitrate,
+                    'channels': a_channels,
+                    'language': a_lang,
+                    'title': a_title
+                })
+                # Keep first audio as legacy fields
+                if info.audio_codec is None:
+                    info.audio_codec = a_codec
+                    info.audio_bitrate = a_bitrate
+                    info.audio_channels = a_channels
 
             elif codec_type == 'subtitle':
                 lang = stream.get('tags', {}).get('language', 'unknown')
@@ -173,6 +205,7 @@ class MediaAnalyzer:
                     'title': title
                 })
 
+        info.audio_streams = audio_streams
         info.subtitle_streams = subtitle_streams
         return info
 
