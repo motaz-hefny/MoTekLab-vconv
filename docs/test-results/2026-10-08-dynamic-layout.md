@@ -47,8 +47,10 @@
 - Revert **only** the scroll panel: `git revert --no-edit bab289c` — CONFLICTS
   on the test file; resolve with `git rm tests/test_layout_dynamic.py && git revert --continue`
   (the log-splitter fix remains, now without its tests).
-- To also drop these docs: `git revert --no-edit HEAD` (docs only; independent
-  of the two fix reverts).
+- To also drop these docs entirely: `git revert --no-edit $(git log --format=%H fc7e434..HEAD -- CHANGELOG.md AGENTS.md docs/user_guide.md docs/user_guide.ar.md docs/test-results/)`
+  (selects just the docs-only commits since `fc7e434`, by hash, newest first —
+  self-updating as docs commits accumulate, touches only the 5 doc files, and
+  works before or after the fix reverts above).
 
 ## Layout probe evidence (Task 1/2 quality reviews)
 - Left panel content ≈ 1128 px tall → the vertical scrollbar will be visible on
