@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Self-update logic tests (v9.7.2): install-mode detection, asset selection,
+Self-update logic tests (v9.7.3): install-mode detection, asset selection,
 streamed download, and the no-pkexec / no-AppImage failure paths.
 Network is avoided by using file:// URLs and mocked urlopen for the API call.
 
@@ -33,16 +33,16 @@ def check(label, cond):
 
 
 SAMPLE = {
-    'vconv_9.7.2_all.deb': 'https://example.deb',
-    'vconv-9.7.2-x86_64.AppImage': 'https://example.appimage',
+    'vconv_9.7.3_all.deb': 'https://example.deb',
+    'vconv-9.7.3-x86_64.AppImage': 'https://example.appimage',
     'Source code (tar.gz)': 'https://example.tgz',
 }
 
 
 def test_asset_selection():
-    check("deb picks *_all.deb", su.select_asset_for_mode(SAMPLE, 'deb') == SAMPLE['vconv_9.7.2_all.deb'])
+    check("deb picks *_all.deb", su.select_asset_for_mode(SAMPLE, 'deb') == SAMPLE['vconv_9.7.3_all.deb'])
     check("appimage picks *.AppImage",
-          su.select_asset_for_mode(SAMPLE, 'appimage') == SAMPLE['vconv-9.7.2-x86_64.AppImage'])
+          su.select_asset_for_mode(SAMPLE, 'appimage') == SAMPLE['vconv-9.7.3-x86_64.AppImage'])
     check("dev has no asset", su.select_asset_for_mode(SAMPLE, 'dev') is None)
     check("empty assets -> None", su.select_asset_for_mode({}, 'deb') is None)
 
@@ -85,27 +85,27 @@ def test_download_asset():
 
 def test_fetch_release_assets_mocked():
     payload = {
-        'tag_name': 'v9.7.2',
+        'tag_name': 'v9.7.3',
         'assets': [
-            {'name': 'vconv_9.7.2_all.deb', 'browser_download_url': 'https://g/D'},
-            {'name': 'vconv-9.7.2-x86_64.AppImage', 'browser_download_url': 'https://g/A'},
+            {'name': 'vconv_9.7.3_all.deb', 'browser_download_url': 'https://g/D'},
+            {'name': 'vconv-9.7.3-x86_64.AppImage', 'browser_download_url': 'https://g/A'},
         ]
     }
     with mock.patch.object(su.urllib.request, 'urlopen') as m:
         m.return_value.__enter__.return_value.read.return_value = json.dumps(payload).encode()
         rel = su.fetch_release_assets()
-    check("tag parsed", rel['tag'] == 'v9.7.2')
-    check("assets parsed", rel['assets'] == {'vconv_9.7.2_all.deb': 'https://g/D',
-                                             'vconv-9.7.2-x86_64.AppImage': 'https://g/A'})
+    check("tag parsed", rel['tag'] == 'v9.7.3')
+    check("assets parsed", rel['assets'] == {'vconv_9.7.3_all.deb': 'https://g/D',
+                                             'vconv-9.7.3-x86_64.AppImage': 'https://g/A'})
 
 
 def test_install_update_failure_paths():
     # deb path without pkexec -> clean failure message
     with mock.patch.object(su.shutil, 'which', return_value=None):
         td = tempfile.mkdtemp(prefix='inst_')
-        fake = Path(td) / 'vconv_9.7.2_all.deb'
+        fake = Path(td) / 'vconv_9.7.3_all.deb'
         fake.write_text('x')
-        result = su.install_update({'vconv_9.7.2_all.deb': fake.as_uri()}, 'deb')
+        result = su.install_update({'vconv_9.7.3_all.deb': fake.as_uri()}, 'deb')
     check("deb without pkexec fails cleanly", result['success'] is False)
     check("failure message mentions pkexec", 'pkexec' in result['message'])
 
@@ -115,16 +115,16 @@ def test_install_update_failure_paths():
         del os.environ['APPIMAGE']
     try:
         td = tempfile.mkdtemp(prefix='inst_')
-        fake = Path(td) / 'vconv-9.7.2-x86_64.AppImage'
+        fake = Path(td) / 'vconv-9.7.3-x86_64.AppImage'
         fake.write_text('x')
-        result = su.install_update({'vconv-9.7.2-x86_64.AppImage': fake.as_uri()}, 'appimage')
+        result = su.install_update({'vconv-9.7.3-x86_64.AppImage': fake.as_uri()}, 'appimage')
     finally:
         if old:
             os.environ['APPIMAGE'] = old
     check("appimage without APPIMAGE fails cleanly", result['success'] is False)
 
     # no matching asset
-    result = su.install_update({'vconv_9.7.2_all.deb': 'https://x'}, 'appimage')
+    result = su.install_update({'vconv_9.7.3_all.deb': 'https://x'}, 'appimage')
     check("no asset -> fail", result['success'] is False)
 
 
