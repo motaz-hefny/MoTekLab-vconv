@@ -1173,6 +1173,23 @@ class MainWindow(QMainWindow):
             return True
         return super().eventFilter(obj, ev)
 
+    @staticmethod
+    def _left_width_action(current, hug, floor, manual):
+        """Next left-panel width, or None = leave the splitter alone.
+
+        Truth table (spec 2026-10-08-dynamic-settings-width):
+        manual + W < F  -> F   (never clip)
+        manual + W >= F -> None (sticky: keep the user's width)
+        auto            -> H   (hug; None when already there)
+        """
+        if manual:
+            if current < floor:
+                return floor
+            return None
+        if hug != current:
+            return hug
+        return None
+
     def _create_left_panel(self):
         panel = QWidget()
         layout = QVBoxLayout(panel)
