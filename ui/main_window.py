@@ -1500,7 +1500,11 @@ class MainWindow(QMainWindow):
         file_btn_layout.addWidget(self.add_to_queue_btn)
         files_layout.addLayout(file_btn_layout)
 
-        layout.addWidget(files_group)
+        top_widget = QWidget()
+        top_layout = QVBoxLayout(top_widget)
+        top_layout.setSpacing(6)
+        top_layout.setContentsMargins(0, 0, 0, 0)
+        top_layout.addWidget(files_group)
 
         queue_group = QGroupBox("Conversion Queue")
         queue_layout = QVBoxLayout(queue_group)
@@ -1535,7 +1539,7 @@ class MainWindow(QMainWindow):
         queue_btn_layout.addStretch()
         queue_layout.addLayout(queue_btn_layout)
 
-        layout.addWidget(queue_group)
+        top_layout.addWidget(queue_group)
 
         progress_group = QGroupBox("Progress")
         prog_layout = QVBoxLayout(progress_group)
@@ -1558,17 +1562,30 @@ class MainWindow(QMainWindow):
         self.file_progress_bar.setToolTip("Current file encoding progress")
         prog_layout.addWidget(self.file_progress_bar)
 
-        layout.addWidget(progress_group)
+        top_layout.addWidget(progress_group)
 
         log_group = QGroupBox("Activity Log")
+        log_group.setWhatsThis(
+            "<b>Activity Log</b><br>Live encoding messages for the current "
+            "session. Drag the separator above this panel to make the log "
+            "taller or shorter.")
         log_layout = QVBoxLayout(log_group)
         log_layout.setContentsMargins(4, 4, 4, 4)
         self.log_text = QTextEdit()
         self.log_text.setReadOnly(True)
-        self.log_text.setMaximumHeight(100)
+        self.log_text.setMinimumHeight(60)
         self.log_text.setPlaceholderText("Encoding activity will appear here...")
         log_layout.addWidget(self.log_text)
-        layout.addWidget(log_group)
+
+        # Draggable log: no fixed 100px cap — the user decides the height.
+        self.log_splitter = QSplitter(Qt.Orientation.Vertical)
+        self.log_splitter.setChildrenCollapsible(False)
+        self.log_splitter.addWidget(top_widget)
+        self.log_splitter.addWidget(log_group)
+        self.log_splitter.setStretchFactor(0, 1)
+        self.log_splitter.setStretchFactor(1, 0)
+        self.log_splitter.setSizes([420, 200])
+        layout.addWidget(self.log_splitter)
 
         return panel
 

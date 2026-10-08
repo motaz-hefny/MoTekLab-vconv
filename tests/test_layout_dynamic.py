@@ -80,9 +80,31 @@ def test_settings_panel_never_squashes():
     gc.collect()
 
 
+def test_log_splitter_drives_log_height():
+    win = make_window()
+    win.show()
+    win.resize(1250, 800)
+    QApplication.processEvents()
+    spl = getattr(win, "log_splitter", None)
+    check("vertical 2-child log splitter exists",
+          isinstance(spl, QSplitter)
+          and spl.count() == 2
+          and spl.orientation() == Qt.Orientation.Vertical)
+    check("log_text has no fixed height cap",
+          win.log_text.maximumHeight() > 1_000_000)
+    spl.setSizes([400, 300])
+    QApplication.processEvents()
+    check(f"log grows with splitter (height={win.log_text.height()})",
+          win.log_text.height() > 150)
+    win.close()
+    del win
+    gc.collect()
+
+
 def main():
     app = QApplication.instance() or QApplication([])
     test_settings_panel_never_squashes()
+    test_log_splitter_drives_log_height()
     print(f"\nRESULT: ALL PASS ({PASS} checks)")
     return 0
 
