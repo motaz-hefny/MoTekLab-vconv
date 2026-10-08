@@ -17,7 +17,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from PyQt6.QtWidgets import QApplication, QScrollArea, QSplitter
+from PyQt6.QtWidgets import QApplication, QScrollArea, QSplitter, QTabWidget
 from PyQt6.QtCore import Qt, pyqtSignal
 from utils.config import Config
 from utils.i18n import I18n
@@ -70,6 +70,10 @@ def test_settings_panel_never_squashes():
     check("left panel wrapped in QScrollArea", isinstance(scroll, QScrollArea))
     win.resize(760, 520)
     QApplication.processEvents()
+    tabs0 = getattr(win, "settings_tabs", None)
+    if tabs0 is not None:
+        tabs0.setCurrentIndex(2)
+        QApplication.processEvents()
     sub = getattr(win, "sub_group", None)
     got = sub.height() if sub else 0
     want = sub.sizeHint().height() if sub else -1
@@ -101,8 +105,34 @@ def test_log_splitter_drives_log_height():
     gc.collect()
 
 
+def test_settings_tabs_structure():
+    win = make_window()
+    win.show()
+    tabs = getattr(win, "settings_tabs", None)
+    check("settings_tabs is a QTabWidget", isinstance(tabs, QTabWidget))
+    check("3 tabs labeled Video/Audio/Subtitles",
+          tabs is not None and tabs.count() == 3
+          and [tabs.tabText(i) for i in range(3)] == ["Video", "Audio", "Subtitles"])
+    if tabs is not None and tabs.count() == 3:
+        video, audio, subs = tabs.widget(0), tabs.widget(1), tabs.widget(2)
+        check("Preset on Video tab", video.isAncestorOf(win.preset_combo))
+        check("Encoder on Video tab", video.isAncestorOf(win.encoder_combo))
+        check("Crop on Video tab", video.isAncestorOf(win.crop_custom_radio))
+        check("Quality on Video tab", video.isAncestorOf(win.quality_slider))
+        check("Output on Video tab", video.isAncestorOf(win.output_dir_edit))
+        check("Format on Video tab", video.isAncestorOf(win.mp4_radio))
+        check("metadata checkbox inside Video tab (Output group)",
+              video.isAncestorOf(win.metadata_check))
+        check("Audio group on Audio tab", audio.isAncestorOf(win.audio_enc_combo))
+        check("Subtitles group on Subtitles tab", subs.isAncestorOf(win.sub_group))
+    win.close()
+    del win
+    gc.collect()
+
+
 def main():
     app = QApplication.instance() or QApplication([])
+    test_settings_tabs_structure()
     test_settings_panel_never_squashes()
     test_log_splitter_drives_log_height()
     print(f"\nRESULT: ALL PASS ({PASS} checks)")

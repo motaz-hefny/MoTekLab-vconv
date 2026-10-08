@@ -1179,6 +1179,22 @@ class MainWindow(QMainWindow):
         layout.setSpacing(6)
         layout.setContentsMargins(2, 2, 2, 2)
 
+        tabs = QTabWidget()
+        tabs.setObjectName("settings_tabs")
+        self.settings_tabs = tabs
+        video_page = QWidget()
+        video_layout = QVBoxLayout(video_page)
+        video_layout.setSpacing(6)
+        video_layout.setContentsMargins(0, 6, 0, 0)
+        audio_page = QWidget()
+        audio_layout = QVBoxLayout(audio_page)
+        audio_layout.setSpacing(6)
+        audio_layout.setContentsMargins(0, 6, 0, 0)
+        subs_page = QWidget()
+        subs_layout = QVBoxLayout(subs_page)
+        subs_layout.setSpacing(6)
+        subs_layout.setContentsMargins(0, 6, 0, 0)
+
         encoder_group = QGroupBox("Encoder")
         enc_layout = QVBoxLayout(encoder_group)
         self.encoder_combo = QComboBox()
@@ -1235,7 +1251,7 @@ class MainWindow(QMainWindow):
         hw_label.setStyleSheet("color: #00B4D8; font-size: 11px;")
         hw_label.setWordWrap(True)
         enc_layout.addWidget(hw_label)
-        layout.addWidget(encoder_group)
+        video_layout.addWidget(encoder_group)
 
         crop_group = QGroupBox("Crop & Color (v9.7)")
         crop_layout = QVBoxLayout(crop_group)
@@ -1259,7 +1275,7 @@ class MainWindow(QMainWindow):
         self.bitdepth_check.setChecked(True)
         self.bitdepth_check.setToolTip("Keeps 10-bit color (uses *_10bit encoders) instead of converting to 8-bit.")
         crop_layout.addWidget(self.bitdepth_check)
-        layout.addWidget(crop_group)
+        video_layout.addWidget(crop_group)
 
         quality_group = QGroupBox("Quality (RF)")
         qual_layout = QVBoxLayout(quality_group)
@@ -1281,7 +1297,7 @@ class MainWindow(QMainWindow):
         qual_layout.addWidget(self.quality_slider)
         self.quality_label = QLabel(f"Current: {self.quality}")
         qual_layout.addWidget(self.quality_label)
-        layout.addWidget(quality_group)
+        video_layout.addWidget(quality_group)
 
         preset_group = QGroupBox("Preset")
         preset_layout = QVBoxLayout(preset_group)
@@ -1302,7 +1318,7 @@ class MainWindow(QMainWindow):
             "<b>mobile</b> — Smaller files, RF 28"
         )
         preset_layout.addWidget(self.preset_combo)
-        layout.addWidget(preset_group)
+        video_layout.insertWidget(0, preset_group)
 
         output_group = QGroupBox("Output")
         out_layout = QVBoxLayout(output_group)
@@ -1337,7 +1353,7 @@ class MainWindow(QMainWindow):
         self.flat_output_check.setWhatsThis("<b>Flat Output</b><br>When checked, all output files go directly into the custom folder root regardless of source folder structure. When unchecked, the relative folder paths from the source root are recreated under the output folder.")
         self.output_custom_radio.toggled.connect(lambda c: self.flat_output_check.setEnabled(c))
         out_layout.addWidget(self.flat_output_check)
-        layout.addWidget(output_group)
+        video_layout.addWidget(output_group)
 
         format_group = QGroupBox("Format")
         fmt_layout = QHBoxLayout(format_group)
@@ -1353,7 +1369,7 @@ class MainWindow(QMainWindow):
         self.mkv_radio.toggled.connect(lambda c: self._set_format('mkv') if c else None)
         fmt_layout.addWidget(self.mp4_radio)
         fmt_layout.addWidget(self.mkv_radio)
-        layout.addWidget(format_group)
+        video_layout.addWidget(format_group)
 
         audio_group = QGroupBox("Audio")
         aud_layout = QFormLayout(audio_group)
@@ -1388,7 +1404,7 @@ class MainWindow(QMainWindow):
         self.audio_tracks_status.setStyleSheet("color: #888; font-size: 10px;")
         track_btn_layout.addWidget(self.audio_tracks_status)
         aud_layout.addRow("", track_btn_layout)
-        layout.addWidget(audio_group)
+        audio_layout.addWidget(audio_group)
 
         sub_group = QGroupBox("Subtitles")
         self.sub_group = sub_group  # exposed for tests/test_layout_dynamic.py
@@ -1471,7 +1487,7 @@ class MainWindow(QMainWindow):
         ext_btn_layout.addLayout(ext_opts_layout)
         sub_layout.addLayout(ext_btn_layout)
 
-        layout.addWidget(sub_group)
+        subs_layout.addWidget(sub_group)
 
         self.metadata_check = QCheckBox("Preserve metadata from source")
         self.metadata_check.setChecked(True)
@@ -1479,12 +1495,19 @@ class MainWindow(QMainWindow):
             "Extract and preserve source metadata (title, date, genre, cover art, etc.) "
             "after encoding. Disable to skip metadata handling for faster processing.")
         self.metadata_check.toggled.connect(lambda c: setattr(self, 'metadata_preserve', c))
-        layout.addWidget(self.metadata_check)
+        out_layout.addWidget(self.metadata_check)
+
+        video_layout.addStretch()
+        audio_layout.addStretch()
+        subs_layout.addStretch()
+        tabs.addTab(video_page, "Video")
+        tabs.addTab(audio_page, "Audio")
+        tabs.addTab(subs_page, "Subtitles")
+        layout.addWidget(tabs)
 
         for wgt in panel.findChildren((QComboBox, QSlider)):
             wgt.installEventFilter(self)
 
-        layout.addStretch()
         return panel
 
     def _create_right_panel(self):
