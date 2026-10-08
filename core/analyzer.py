@@ -150,6 +150,16 @@ class MediaAnalyzer:
             codec_type = stream.get('codec_type', '')
 
             if codec_type == 'video':
+                # Cover art arrives as a pseudo-video stream (e.g. MKV
+                # cover.jpg with attached_pic=1). Skipping it prevents the
+                # image's codec/pix_fmt/bit depth from overwriting the real
+                # video track (regression: 10-bit sources encoded as 8-bit).
+                if info.video_codec:
+                    continue  # main video already parsed; skip angles/covers
+                disp = stream.get('disposition') or {}
+                if disp.get('attached_pic') or disp.get('timed_thumbnails'):
+                    continue
+
                 info.video_codec = stream.get('codec_name', '').upper()
                 info.width = stream.get('width')
                 info.height = stream.get('height')

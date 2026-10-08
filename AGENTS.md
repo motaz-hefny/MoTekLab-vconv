@@ -154,6 +154,14 @@ The 1250×800 default / 1100×700 minimum were too big for small laptops (up to 
 - `get_recommended_encoder()` priority: GPU AV1 > GPU HEVC > NVEncC > x265; `get_badge()` returns `★ Best for your GPU` / `★ Best`.
 - UI: encoder combo built from availability with badges; auto-selects recommended as initial default only when config encoder absent (`recommend, never force`).
 
+## MediaAnalyzer Cover-Art Stream Rule (2026-10-08 AV1 black-screen fix)
+`core/analyzer.py:_parse_probe_data` parses ffprobe JSON for the bit-depth probe (`_probe_source_bit_depth` → `_effective_bit_depth` → `svt_av1` vs `svt_av1_10bit`), the UI file-info sites (`ui/main_window.py:~793/1759/1978`) and the CLI `--analyze`. Rule (regression-tested by `tests/test_analyzer_attached_pic.py`, 16 checks):
+
+1. **Cover art is a fake video stream**: embedded covers arrive as `codec_type=video` with `disposition.attached_pic=1` (e.g. `mjpeg 2000x3000 filename=cover.jpg`). Always skip `attached_pic` and `timed_thumbnails` streams.
+2. **First real video stream wins** (`if info.video_codec: continue`). Never `break` the outer loop — audio/subtitle streams are collected *after* the video stream in ffprobe order.
+3. **Why it matters (bug chain)**: the old last-video-wins loop made a 10-bit `yuv420p10le` source probe as `bit_depth=8` → HandBrake got `svt_av1` (8-bit) → VLC 3.0.20 + NVIDIA VDPAU renders **8-bit AV1 black with zero log errors** (ffmpeg says the file is fine; `--avcodec-hw=none` plays it). 10-bit AV1 makes VDPAU reject/fall back to software `dav1d` → plays. Detection test: local copies of a file may lack the cover stream (ffmpeg `-c copy` drops it) — always probe the ORIGINAL file.
+4. **VLC/VDPau workaround (report-only, environment bug)**: VLC → Video → Hardware-accelerated decoding → off; vconv's fix is to output 10-bit as promised.
+
 ## Output Container Verification
 To confirm a converted file really is MP4 vs MKV:
 - `ffprobe -v error -show_entries format=format_name -of default=noprint_wrappers=1:nokey=1 <file>` → prints `mp4` / `matroska,webm` (MKV shows `matroska`).
