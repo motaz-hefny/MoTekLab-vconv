@@ -888,6 +888,10 @@ The log file records:
 - Hardware detection results
 - Configuration changes
 
+The main window also has an in-app **Activity Log** panel (bottom-right)
+showing live encoding messages. Drag the separator above it to resize — it
+starts about 200 px tall and has no fixed limit.
+
 ---
 
 ## Command Line Interface

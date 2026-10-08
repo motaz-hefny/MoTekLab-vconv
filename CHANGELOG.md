@@ -5,6 +5,12 @@ All notable changes to the vconv project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **Subtitle box squashed on shorter windows** (`ui/main_window.py`): the left settings panel is now wrapped in a `QScrollArea` (`self.settings_scroll`) — every settings box (Subtitles included) always keeps its natural height and a scrollbar appears instead of Qt compressing the boxes. Horizontal splitter behavior (300/950) is unchanged.
+- **Activity Log cramped at 100 px** (`ui/main_window.py`): removed the hard `setMaximumHeight(100)`; Files/Queue/Progress and the Activity Log now sit in a vertical `QSplitter` (`self.log_splitter`, non-collapsible, default ≈200 px) — drag the separator to give the log any height.
+
 ## [9.7.5] - 2026-10-08
 
 ### Fixed
