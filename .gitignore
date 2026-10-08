@@ -53,3 +53,4 @@ htmlcov/
 *.AppImage
 *.tar.gz/dist/
 public/*.png
+.superpowers/
