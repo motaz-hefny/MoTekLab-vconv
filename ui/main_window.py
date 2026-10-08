@@ -614,6 +614,45 @@ def default_videos_dir(home=None):
     return home / "Videos"
 
 
+class _HugTabWidget(QTabWidget):
+    """Tab widget whose sizeHint() hugs the currently visible page.
+
+    Qt 6.11's QTabWidget::sizeHint() expands over ALL visible tab pages
+    (qtabwidget.cpp), so a plain instance always reports the widest page and
+    can never shrink with the active tab. The dynamic-width design
+    (docs/superpowers/specs/2026-10-08-dynamic-settings-width-design.md)
+    needs a per-current-tab hug, so recompute Qt's own formula
+    (style padding + max(current page, tab bar)) instead.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.currentChanged.connect(self.updateGeometry)
+
+    def sizeHint(self):
+        current = self.currentWidget()
+        if current is None:
+            return super().sizeHint()
+        base = super().sizeHint()
+        widest = tallest = 0
+        for i in range(self.count()):
+            page = self.widget(i)
+            if page is not None and self.isTabVisible(i):
+                hint = page.sizeHint()
+                widest = max(widest, hint.width())
+                tallest = max(tallest, hint.height())
+        tab_bar = self.tabBar().sizeHint()
+        if self.usesScrollButtons():
+            tab_bar = tab_bar.boundedTo(QSize(200, 200))
+        pad_w = base.width() - max(widest, tab_bar.width())
+        pad_h = base.height() - (tallest + tab_bar.height())
+        cur = current.sizeHint()
+        return QSize(
+            max(cur.width(), tab_bar.width()) + pad_w,
+            cur.height() + tab_bar.height() + pad_h,
+        )
+
+
 class MainWindow(QMainWindow):
     """Main application window using PyQt6."""
 
@@ -1196,7 +1235,7 @@ class MainWindow(QMainWindow):
         layout.setSpacing(6)
         layout.setContentsMargins(2, 2, 2, 2)
 
-        tabs = QTabWidget()
+        tabs = _HugTabWidget()
         tabs.setObjectName("settings_tabs")
         self.settings_tabs = tabs
         video_page = QWidget()
@@ -1265,6 +1304,7 @@ class MainWindow(QMainWindow):
             rec_name = self.encoder_manager.get_encoder_info(recommended).get('name', recommended)
             hw_text += f"  ✅ {rec_name} (Recommended)"
         hw_label = QLabel(hw_text)
+        hw_label.setObjectName("hwLabel")
         hw_label.setStyleSheet("color: #00B4D8; font-size: 11px;")
         hw_label.setWordWrap(True)
         enc_layout.addWidget(hw_label)
@@ -1339,9 +1379,9 @@ class MainWindow(QMainWindow):
 
         output_group = QGroupBox("Output")
         out_layout = QVBoxLayout(output_group)
-        self.output_same_radio = QRadioButton("Same as source (preserve structure)")
+        self.output_same_radio = QRadioButton("Same as source")
         self.output_same_radio.setChecked(True)
-        self.output_same_radio.setToolTip("Save encoded files in their original folders")
+        self.output_same_radio.setToolTip("Same as source (preserve structure)")
         self.output_same_radio.setWhatsThis("<b>Same as Source</b><br>Files are saved alongside the originals with a new extension. Folder structure is naturally preserved.")
         self.output_custom_radio = QRadioButton("Custom folder")
         self.output_custom_radio.setToolTip("Save all encoded files to a specific folder")
@@ -1364,9 +1404,9 @@ class MainWindow(QMainWindow):
         browse_btn.clicked.connect(lambda: self._browse_output())
         out_input_layout.addWidget(browse_btn)
         out_layout.addLayout(out_input_layout)
-        self.flat_output_check = QCheckBox("Flat output (dump all files in one folder)")
+        self.flat_output_check = QCheckBox("Flat output (single folder)")
         self.flat_output_check.setEnabled(False)
-        self.flat_output_check.setToolTip("When unchecked, folder structure is preserved relative to source root")
+        self.flat_output_check.setToolTip("Flat output (dump all files in one folder)")
         self.flat_output_check.setWhatsThis("<b>Flat Output</b><br>When checked, all output files go directly into the custom folder root regardless of source folder structure. When unchecked, the relative folder paths from the source root are recreated under the output folder.")
         self.output_custom_radio.toggled.connect(lambda c: self.flat_output_check.setEnabled(c))
         out_layout.addWidget(self.flat_output_check)
@@ -1475,6 +1515,7 @@ class MainWindow(QMainWindow):
         sub_layout.addWidget(self.ext_sub_list)
 
         ext_btn_layout = QHBoxLayout()
+        ext_btn_layout.setObjectName("ext_btn_layout")
         ext_btn_layout.setSpacing(4)
         add_sub_btn = QPushButton("➕ Add")
         add_sub_btn.setToolTip("Add external subtitle files (SRT, ASS, SSA)")
@@ -1492,6 +1533,7 @@ class MainWindow(QMainWindow):
         clear_sub_btn.clicked.connect(lambda: self._clear_external_subtitles())
         ext_btn_layout.addWidget(clear_sub_btn)
         ext_opts_layout = QHBoxLayout()
+        ext_opts_layout.setObjectName("ext_opts_layout")
         self.ext_srt_burn_check = QCheckBox("Burn external")
         self.ext_srt_burn_check.setToolTip("Burn external subtitles permanently into the video")
         self.ext_srt_burn_check.toggled.connect(lambda c: setattr(self, 'external_srt_burn', c))
@@ -1501,8 +1543,8 @@ class MainWindow(QMainWindow):
         self.ext_srt_default_check.setToolTip("Make external subtitles the default playback track")
         self.ext_srt_default_check.toggled.connect(lambda c: setattr(self, 'external_srt_default', c))
         ext_opts_layout.addWidget(self.ext_srt_default_check)
-        ext_btn_layout.addLayout(ext_opts_layout)
         sub_layout.addLayout(ext_btn_layout)
+        sub_layout.addLayout(ext_opts_layout)
 
         subs_layout.addWidget(sub_group)
 
@@ -1521,6 +1563,11 @@ class MainWindow(QMainWindow):
         tabs.addTab(audio_page, "Audio")
         tabs.addTab(subs_page, "Subtitles")
         layout.addWidget(tabs)
+
+        # Content reflow: combos must not set the panel's minimum width
+        # (spec 2026-10-08-dynamic-settings-width; encoder_combo is the precedent).
+        for combo in panel.findChildren(QComboBox):
+            combo.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
 
         for wgt in panel.findChildren((QComboBox, QSlider)):
             wgt.installEventFilter(self)
