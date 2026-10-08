@@ -1,6 +1,6 @@
 # MoTekLab Video Encoder — User Guide
 
-> Version 9.7.0 | PyQt6 + HandBrakeCLI
+> Version 9.7.2 | PyQt6 + HandBrakeCLI
 > Language: English
 
 ---
@@ -197,9 +197,9 @@ vconv does NOT overwrite files. If `output.mp4` exists, it creates `output_1.mp4
 
 ## Encoder Settings
 
-### Available Encoders (v9.7.0)
+### Available Encoders (v9.7.2)
 
-Since v9.7.0 the encoder dropdown is built **from your actual hardware** — only
+Since v9.7.2 the encoder dropdown is built **from your actual hardware** — only
 encoders the detected tools can run are shown, each labeled with a badge:
 
 - `★ Best for your GPU` = the recommended encoder for your hardware.
@@ -223,7 +223,7 @@ encoders the detected tools can run are shown, each labeled with a badge:
 > Intel / RDNA4-less AMD), AV1 is a **CPU** encoder (`SVT-AV1`). The GPU AV1 encoder
 > only appears when the hardware supports it.
 
-### 10-Bit and Crop Preservation (v9.7.0)
+### 10-Bit and Crop Preservation (v9.7.2)
 
 The **Crop & Color** group in the right-hand panel prevents two silent quality losses:
 
@@ -1340,5 +1340,5 @@ A: Run `vconv --reset` or go to File → Settings → Reset to Defaults.
 
 ---
 
-*Last updated: 2026-10-08 | MoTekLab Video Encoder v9.7.0 | Created by MoTekLab*
+*Last updated: 2026-10-08 | MoTekLab Video Encoder v9.7.2 | Created by MoTekLab*
 *Full documentation and updates at [moteklab.com](https://moteklab.com)*

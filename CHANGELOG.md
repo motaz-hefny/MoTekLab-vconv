@@ -5,7 +5,10 @@ All notable changes to the vconv project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [9.7.2] - 2026-10-08
+
+### Changed
+- **Version**: 9.7.1 → 9.7.2
 
 ### Added
 - **In-place self-update** (`utils/self_update.py` + `UpdateInstallWorker` in `ui/main_window.py`): the update dialog's new **🔄 Update & Restart** button downloads the matching GitHub release artifact and installs it in place — `.deb` installs via `pkexec dpkg -i` (root), AppImage builds via an atomic self-replace. The app then relaunches itself automatically. Development checkouts fall back to opening the release page (no auto-install over source).
