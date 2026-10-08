@@ -5,7 +5,21 @@ All notable changes to the vconv project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [9.7.3] - 2026-10-08
+
+### Fixed
+- **NVEncC update always failed after a successful download** (`utils/tool_updater.py`): `_install_nvencc` located the binary with a case-sensitive `rglob("NVEncC")`, but rigaya's 9.38 deb ships the binary as lowercase `usr/bin/nvencc` — every manual update ended with "NVEncC binary not found in package" despite downloading fine. Binary discovery is now case-insensitive (`_find_nvenc_binary()`), and version detection parses NVEncC's real banner (`NVEnc (x64) 9.38 …`) instead of the never-matched `NVEncC <ver>` line, so the dialog correctly shows the tool as "current" after install.
+- **Tool update failures said "see log" while the reason went nowhere** (`ui/main_window.py`, `utils/tool_updater.py`): the dialog only ever showed a generic failure, and the real error was logged to a bare `logging.getLogger(__name__)` root child that never reached `~/.config/vconv/logs/vconv.log`. Worse, `ui/main_window.py` had **no module-level `logger` at all**, so the self-update failure handler (`UpdateInstallWorker`) raised `NameError` inside its own `except` — an install failure would kill the thread without emitting `install_finished`, hanging the progress dialog. Install failures now stream the real reason (download / extract / flatpak stderr) into the dialog via `error_cb`, tool-updater logs flow through the `vconv.*` logger tree, and `main_window` logs via `get_logger`. HandBrakeCLI failures now tell the user the exact flatpak stderr plus the manual `flatpak install` command.
+- **Startup auto-update could race a manual Update click** (`utils/tool_updater.py`): the launch-time auto-download (ffmpeg + NVEncC) and a manual Update from Tools & Encoders both write the same tool dir; a concurrent pair could corrupt a partial install. A per-tool reservation (`_reserve_install`/`_release_install`) now refuses the second concurrent install with a clear message ("already running (startup auto-update?)").
+- **Main window too big for small monitors** (`ui/main_window.py`): the fixed 1250×800 default and 1100×700 minimum now scale to the current screen — `_screen_window_bounds()` shrinks min/default sizes so the window fits 1366×768 and 1024×600 displays; saved window geometry is clamped to the screen and never restored off-screen (e.g. after unplugging a monitor). On large (1920+/1080+) screens the base font is bumped +1pt for readability.
+
+### Added
+- Regression tests: `tests/test_tool_updater.py` version-probe checks made environment-independent (monkeypatched `_ffmpeg_version` etc.); +33 checks for binary-name scan, install concurrency guard, `error_cb` surfacing, NVEncC banner parse and screen-sizing helper (`_screen_window_bounds`).
+
+### Changed
+- **Version**: 9.7.2 → 9.7.3
+
+## [9.7.2] - 2026-10-08
 
 ### Added
 - **In-place self-update** (`utils/self_update.py` + `UpdateInstallWorker` in `ui/main_window.py`): the update dialog's new **🔄 Update & Restart** button downloads the matching GitHub release artifact and installs it in place — `.deb` installs via `pkexec dpkg -i` (root), AppImage builds via an atomic self-replace. The app then relaunches itself automatically. Development checkouts fall back to opening the release page (no auto-install over source).
@@ -14,10 +28,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - **Start menu launched the wrong version**: the user-scope launcher kept its original `Exec=` pointing at a dev checkout because `/opt/vconv`'s layout (no `public/` dir, no shipped `.desktop`) made `ensure_xdg_integration` bail early. It now probes `vconv-icon-256.png`, falls back to the system icon, and synthesizes the template if the deb omits it.
 - **Tools & Encoders dialog stuck on "checking…"** (`ui/main_window.py`): `ToolUpdaterWorker.run()` imported `TOOL_IDS` as if it were a module-level name, but it is a class attribute (`ToolUpdater.TOOL_IDS`) — the `from utils.tool_updater import ToolUpdater, TOOL_IDS` statement raised `ImportError` before any status was computed, so the dialog rows froze on "checking…" with Update disabled and the startup auto-tool-update silently did nothing. The worker now imports only `ToolUpdater` and iterates `ToolUpdater.TOOL_IDS`. New regression test `tests/test_tool_worker.py` (7 checks) executes the real `run()` body against a fake no-network `ToolUpdater`.
-- **NVEncC update always failed after a successful download** (`utils/tool_updater.py`): `_install_nvencc` located the binary with a case-sensitive `rglob("NVEncC")`, but rigaya's 9.38 deb ships the binary as lowercase `usr/bin/nvencc` — every manual update ended with "NVEncC binary not found in package" despite downloading fine. Binary discovery is now case-insensitive (`_find_nvenc_binary()`), and version detection parses NVEncC's real banner (`NVEnc (x64) 9.38 …`) instead of the never-matched `NVEncC <ver>` line, so the dialog correctly shows the tool as "current" after install.
-- **Tool update failures said "see log" while the reason went nowhere** (`ui/main_window.py`, `utils/tool_updater.py`): the dialog only ever showed a generic failure, and the real error was logged to a bare `logging.getLogger(__name__)` root child that never reached `~/.config/vconv/logs/vconv.log`. Worse, `ui/main_window.py` had **no module-level `logger` at all**, so the self-update failure handler (`UpdateInstallWorker`) raised `NameError` inside its own `except` — an install failure would kill the thread without emitting `install_finished`, hanging the progress dialog. Install failures now stream the real reason (download / extract / flatpak stderr) into the dialog via `error_cb`, tool-updater logs flow through the `vconv.*` logger tree, and `main_window` logs via `get_logger`. HandBrakeCLI failures now tell the user the exact flatpak stderr plus the manual `flatpak install` command.
-- **Startup auto-update could race a manual Update click** (`utils/tool_updater.py`): the launch-time auto-download (ffmpeg + NVEncC) and a manual Update from Tools & Encoders both write the same tool dir; a concurrent pair could corrupt a partial install. A per-tool reservation (`_reserve_install`/`_release_install`) now refuses the second concurrent install with a clear message ("already running (startup auto-update?)").
-- **Main window too big for small monitors** (`ui/main_window.py`): the fixed 1250×800 default and 1100×700 minimum now scale to the current screen — `_screen_window_bounds()` shrinks min/default sizes so the window fits 1366×768 and 1024×600 displays; saved window geometry is clamped to the screen and never restored off-screen (e.g. after unplugging a monitor). On large (1920+/1080+) screens the base font is bumped +1pt for readability.
+
+### Changed
+- **Version**: 9.7.1 → 9.7.2
+
+## [Unreleased]
 
 ## [9.7.0] - 2026-10-08
 
