@@ -27,7 +27,8 @@ class Config:
             'language': 'en',
             'theme': 'dark',
             'check_updates': True,
-            'log_level': 'info'
+            'log_level': 'info',
+            'auto_update_tools': True
         },
         'defaults': {
             'encoder': 'auto',

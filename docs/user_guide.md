@@ -1,6 +1,6 @@
 # MoTekLab Video Encoder — User Guide
 
-> Version 9.2.2 | PyQt6 + HandBrakeCLI
+> Version 9.7.0 | PyQt6 + HandBrakeCLI
 > Language: English
 
 ---
@@ -197,21 +197,48 @@ vconv does NOT overwrite files. If `output.mp4` exists, it creates `output_1.mp4
 
 ## Encoder Settings
 
-### Available Encoders
+### Available Encoders (v9.7.0)
+
+Since v9.7.0 the encoder dropdown is built **from your actual hardware** — only
+encoders the detected tools can run are shown, each labeled with a badge:
+
+- `★ Best for your GPU` = the recommended encoder for your hardware.
+- `★ Best` = best quality/compression for a CPU encoder category.
+- The app **recommends but never forces** — whatever encoder you pick is kept.
 
 | Encoder | Type | Speed | File Size | Quality | Best For |
 |---------|------|-------|-----------|---------|----------|
-| **NVENC H.265** | NVIDIA GPU | ⚡ Very Fast (200+ fps) | Medium | Good | Gaming recordings, daily videos |
-| **NVENC H.264** | NVIDIA GPU | ⚡ Very Fast (250+ fps) | Large | Fair | Streaming, compatibility |
-| **QSV H.265** | Intel GPU | ⚡ Fast (150+ fps) | Medium | Good | Battery-saving encodes |
-| **QSV H.264** | Intel GPU | ⚡ Fast (180+ fps) | Large | Fair | Quick H.264 encodes |
-| **AMF H.265** | AMD GPU | ⚡ Fast (120+ fps) | Medium | Good | AMD GPU encodes |
-| **AMF H.264** | AMD GPU | ⚡ Fast (150+ fps) | Large | Fair | AMD compatibility |
-| **x265 (CPU)** | CPU | 🐢 Slow (20-50 fps) | Small | Excellent | Archival, best compression |
-| **x264 (CPU)** | CPU | 🐢 Medium (50-100 fps) | Medium | Great | Universal compatibility |
-| **SVT-AV1** | CPU | 🐢 Very Slow (5-15 fps) | Very Small | Best | Future-proof, smallest files |
+| **NVENC H.265** | NVIDIA GPU | ⚡ Very Fast | Medium | Good | Every-day GPU encodes, 10-bit |
+| **NVENC H.264** | NVIDIA GPU | ⚡ Very Fast | Large | Fair | Streaming, compatibility |
+| **NVEncC H.265/H.264** | NVIDIA GPU (rigaya) | ⚡ Very Fast | Medium | Good | GPU encodes outside HandBrake limits |
+| **NVENC AV1** | NVIDIA GPU (RTX 40+) | ⚡ Fast | Small | Great | Newest GPUs only |
+| **x265 (CPU)** | CPU | 🐢 Slow | Small | Excellent | Archival, best compression |
+| **x264 (CPU)** | CPU | 🐢 Medium | Medium | Great | Universal compatibility |
+| **SVT-AV1 (CPU)** | CPU | 🐢 Very Slow | Very Small | Best | Future-proof, smallest files |
+| **VP9 / VP8 / MPEG-4 / MPEG-2 / Theora** | CPU | varies | varies | varies | Specialty/legacy containers |
 
 **Speed estimates are for 1080p video on a modern 8-core CPU with NVIDIA RTX 2060 SUPER.**
+
+> **Note on AV1**: On GPUs without AV1 hardware (any RTX before RTX 40 / +5000-series
+> Intel / RDNA4-less AMD), AV1 is a **CPU** encoder (`SVT-AV1`). The GPU AV1 encoder
+> only appears when the hardware supports it.
+
+### 10-Bit and Crop Preservation (v9.7.0)
+
+The **Crop & Color** group in the right-hand panel prevents two silent quality losses:
+
+- **Preserve source bit depth** (checkbox, default **on**): a 10-bit source stays
+  10-bit in the output (a 10-bit encoder variant such as `x265_10bit` /
+  `svt_av1_10bit` / `nvenc_h265_10bit` is auto-selected). Turn off to force 8-bit.
+- **Crop** (default: **Preserve full frame**): disables HandBrake's auto-crop so the
+  output keeps the source resolution. Auto-crop can over-crop dark content and shrink
+  a 1920×1080 source to 1920×960. Pick **Auto** to let HandBrake crop letterbox bars,
+  or **Custom** and enter `top:bottom:left:right`.
+
+### AV1 Speed Control
+
+When an AV1 encoder is selected, the **AV1 preset** dropdown appears (0 = best/slowest
+quality, 12 = fastest). **Balanced (6)** is the default and usually the best trade-off.
 
 ### Hardware Acceleration
 
@@ -1160,6 +1187,26 @@ Possible causes:
   - Consider AAC 128 kbps audio instead of passthrough
 ```
 
+#### Output file has the wrong format/extension
+```
+Example: You selected MKV, but the output is saved as .mp4
+
+Possible causes:
+  ❌ Format radio button was clicked but the selection didn't take
+     effect (fixed in v9.6.2 — the MKV radio now always updates
+     the output format)
+  ❌ A preset with a different format was applied after your choice
+  ❌ Queue jobs created before changing the format (jobs convert
+     using the format selected at start time)
+
+✅ Fix:
+  1. Verify the MP4/MKV radio in the "Format" group shows your choice
+  2. Check Settings → Format menu — the checkmark must match
+  3. The output file extension always matches the selected format:
+     MKV → .mkv, MP4 → .mp4
+  4. HandBrakeCLI receives the matching --format argument
+```
+
 #### Conversion is very slow
 ```
 Possible causes:
@@ -1293,5 +1340,5 @@ A: Run `vconv --reset` or go to File → Settings → Reset to Defaults.
 
 ---
 
-*Last updated: 2026-05-16 | MoTekLab Video Encoder v9.2.2 | Created by MoTekLab*
+*Last updated: 2026-10-08 | MoTekLab Video Encoder v9.7.0 | Created by MoTekLab*
 *Full documentation and updates at [moteklab.com](https://moteklab.com)*

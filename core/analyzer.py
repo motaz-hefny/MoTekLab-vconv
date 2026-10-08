@@ -8,6 +8,7 @@ import subprocess
 import json
 import logging
 import shutil
+import re
 from dataclasses import dataclass
 from typing import Optional
 
@@ -27,6 +28,8 @@ class MediaInfo:
     width: Optional[int] = None
     height: Optional[int] = None
     framerate: Optional[str] = None
+    pix_fmt: Optional[str] = None
+    bit_depth: Optional[int] = None
     audio_codec: Optional[str] = None
     audio_bitrate: Optional[str] = None
     audio_channels: Optional[str] = None
@@ -151,6 +154,10 @@ class MediaAnalyzer:
                 info.width = stream.get('width')
                 info.height = stream.get('height')
 
+                # Pixel format / color bit depth (yuv420p10le -> 10-bit)
+                info.pix_fmt = stream.get('pix_fmt')
+                info.bit_depth = self._parse_bit_depth(info.pix_fmt)
+
                 # Frame rate
                 fps_str = stream.get('r_frame_rate', '0/1')
                 if '/' in fps_str:
@@ -222,6 +229,17 @@ class MediaAnalyzer:
         if kbps >= 1000:
             return f"{kbps / 1000:.1f} Mbps"
         return f"{kbps} kbps"
+
+    def _parse_bit_depth(self, pix_fmt: Optional[str]) -> Optional[int]:
+        """Derive color bit depth from ffprobe pix_fmt (e.g. yuv420p10le -> 10)."""
+        if not pix_fmt:
+            return None
+        m = re.search(r'(\d{1,2})le', pix_fmt) or re.search(r'p(\d{1,2})', pix_fmt)
+        if m:
+            depth = int(m.group(1))
+            if 1 <= depth <= 16:
+                return depth
+        return 8 if 'yuvj' in pix_fmt or pix_fmt.startswith('yuv') else None
 
 
 # Quick test

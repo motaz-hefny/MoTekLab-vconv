@@ -7,10 +7,13 @@
 
 ### 1. Update Version
 Update version in:
-- `vconv.py` (VERSION string)
-- `ui/main_window.py` (window title + status bar)
-- `docs/user_guide.md` (version line at top)
+- `utils/version.py` — **single source of truth** (`__version__` and `VERSION`)
+  (everything else — `vconv.py`, `ui/main_window.py` title/status bar, About dialog — imports from here; no other hardcoded version edits needed)
+- `docs/user_guide.md` (version line at top + footer)
+- `docs/user_guide.ar.md` (version line at top + footer)
+- `vconv.desktop` (`Comment=` line)
 - `CHANGELOG.md` (add new version entry)
+- `README.md` (Version line)
 
 ### 2. Commit & Tag
 ```bash

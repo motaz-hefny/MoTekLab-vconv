@@ -24,7 +24,7 @@ from PyQt6.QtWidgets import (
     QStatusBar, QToolBar, QMenu, QFrame, QSizePolicy,
     QLineEdit, QDialog, QFormLayout, QInputDialog,
     QListWidget, QListWidgetItem, QTextEdit, QTabWidget,
-    QWhatsThis
+    QWhatsThis, QGridLayout
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSize, QUrl
 from PyQt6.QtGui import QAction, QFont, QKeySequence, QIcon, QPixmap, QShortcut
@@ -182,6 +182,188 @@ class UpdateCheckWorker(QThread):
         info = check_for_updates(self.current_version)
         self.update_found.emit(info)
         self.check_done.emit()
+
+
+class ToolUpdaterWorker(QThread):
+    """Startup worker: checks managed tools; auto-downloads ffmpeg / NVEncC."""
+    status_ready = pyqtSignal(object)   # ToolStatus per tool
+    auto_updated = pyqtSignal(object)   # ToolStatus after an auto-install
+    done = pyqtSignal()
+
+    def __init__(self, auto_update_tools: bool):
+        super().__init__()
+        self.auto_update_tools = auto_update_tools
+
+    def run(self):
+        try:
+            from utils.tool_updater import ToolUpdater, TOOL_IDS
+            updater = ToolUpdater()
+            for tid in TOOL_IDS:
+                try:
+                    st = updater.status(tid)
+                except Exception:
+                    continue
+                self.status_ready.emit(st)
+                if (self.auto_update_tools and st.update_available
+                        and tid in ("ffmpeg", "nvencc")):
+                    ok = updater.update(tid)
+                    if ok:
+                        st2 = updater.status(tid)
+                        self.status_ready.emit(st2)
+                        self.auto_updated.emit(st2)
+        finally:
+            self.done.emit()
+
+
+class ToolInstallWorker(QThread):
+    """Installs/updates one tool in the background from the Tools dialog."""
+    progress = pyqtSignal(float, str)
+    result = pyqtSignal(object, bool, str)   # ToolStatus, ok, message
+
+    def __init__(self, tool_id: str):
+        super().__init__()
+        self.tool_id = tool_id
+
+    def run(self):
+        from utils.tool_updater import ToolUpdater
+        updater = ToolUpdater()
+        ok = updater.update(self.tool_id, self._progress, None)
+        st = updater.status(self.tool_id)
+        if ok:
+            msg = f"{st.display} updated to {st.latest_version}"
+        else:
+            msg = f"Update of {st.display} failed: {st.note or 'see log'}"
+        self.result.emit(st, ok, msg)
+
+    def _progress(self, pct: float, phase: str):
+        self.progress.emit(pct, phase)
+
+
+class ToolsDialog(QDialog):
+    """Shows managed encoding tools with install/update buttons."""
+
+    TOOL_TITLES = {
+        "ffmpeg": "ffmpeg / ffprobe",
+        "nvencc": "NVEncC (GPU)",
+        "handbrake": "HandBrakeCLI",
+    }
+
+    def __init__(self, config, parent=None):
+        super().__init__(parent)
+        self.config = config
+        self.setWindowTitle("Tools & Encoders")
+        self.resize(680, 380)
+        self.rows: dict[str, dict] = {}
+        self._refresh_worker = None
+        self._install_workers = set()
+
+        layout = QVBoxLayout(self)
+
+        note = QLabel(
+            "Encoding tools are kept at the latest official version. ffmpeg and "
+            "NVEncC are downloaded to your user folder (no root needed). "
+            "HandBrakeCLI has no official Linux binary; update it via Flatpak "
+            "or your package manager.")
+        note.setWordWrap(True)
+        layout.addWidget(note)
+
+        group = QGroupBox("Managed tools")
+        grid = QGridLayout(group)
+        grid.setColumnStretch(2, 1)
+        self._build_rows(grid)
+        layout.addWidget(group)
+
+        self.auto_check = QCheckBox("Auto-download updated tools on startup")
+        self.auto_check.setChecked(self.config.get('general', 'auto_update_tools', True))
+        self.auto_check.setToolTip(
+            "On startup, ffmpeg and NVEncC updates are downloaded automatically. "
+            "HandBrakeCLI is only updated when you press its button.")
+        layout.addWidget(self.auto_check)
+
+        self.auto_check.toggled.connect(self._save_auto_setting)
+
+        btn_row = QHBoxLayout()
+        refresh_btn = QPushButton("🔄 Refresh")
+        refresh_btn.clicked.connect(self.refresh)
+        btn_row.addWidget(refresh_btn)
+        btn_row.addStretch()
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(self.accept)
+        btn_row.addWidget(close_btn)
+        layout.addLayout(btn_row)
+
+        self.refresh()
+
+    def _build_rows(self, grid: QGridLayout):
+        for i, tid in enumerate(("ffmpeg", "nvencc", "handbrake")):
+            title = QLabel(f"<b>{self.TOOL_TITLES[tid]}</b>")
+            grid.addWidget(title, i, 0)
+            status = QLabel("checking…")
+            status.setWordWrap(True)
+            grid.addWidget(status, i, 1)
+            bar = QProgressBar()
+            bar.setVisible(False)
+            bar.setMaximumWidth(120)
+            grid.addWidget(bar, i, 2)
+            btn = QPushButton("Update")
+            btn.setEnabled(False)
+            btn.clicked.connect(lambda _, t=tid: self._on_update_clicked(t))
+            grid.addWidget(btn, i, 3)
+            self.rows[tid] = {"label": status, "bar": bar, "button": btn}
+
+    def refresh(self):
+        if self._refresh_worker is not None:
+            return
+        for r in self.rows.values():
+            r["label"].setText("checking…")
+            r["button"].setEnabled(False)
+        self._refresh_worker = ToolUpdaterWorker(False)
+        self._refresh_worker.status_ready.connect(self._apply_status)
+        self._refresh_worker.done.connect(self._refresh_done)
+        self._refresh_worker.start()
+
+    def _apply_status(self, st):
+        row = self.rows.get(st.tool_id)
+        if not row:
+            return
+        installed = st.installed_version or "not installed"
+        latest = st.latest_version or "unknown"
+        state = "outdated" if st.update_available else "current"
+        text = f"installed <b>{installed}</b> · latest <b>{latest}</b> · <i>{state}</i>"
+        if st.note:
+            text += f"<br><span style='color:#777'>{st.note}</span>"
+        row["label"].setText(text)
+        row["button"].setEnabled(st.update_available)
+
+    def _refresh_done(self):
+        self._refresh_worker = None
+
+    def _save_auto_setting(self, checked):
+        self.config.set('general', 'auto_update_tools', checked)
+        self.config.save()
+
+    def _on_update_clicked(self, tool_id: str):
+        row = self.rows[tool_id]
+        row["button"].setEnabled(False)
+        row["bar"].setVisible(True)
+        row["bar"].setRange(0, 100)
+        row["bar"].setValue(0)
+        worker = ToolInstallWorker(tool_id)
+        worker.progress.connect(lambda pct, _ph: row["bar"].setValue(int(pct)))
+        worker.result.connect(lambda st, ok, msg: self._on_install_result(st, ok, msg))
+        worker.finished.connect(lambda: self._install_workers.discard(worker))
+        self._install_workers.add(worker)
+        worker.start()
+
+    def _on_install_result(self, st, ok, msg):
+        self._apply_status(st)
+        bar = self.rows.get(st.tool_id, {}).get("bar")
+        if bar is not None:
+            bar.setVisible(False)
+        if ok:
+            QMessageBox.information(self, "Tool Update", msg)
+        else:
+            QMessageBox.warning(self, "Tool Update", msg)
 
 
 class AudioTrackDialog(QDialog):
@@ -350,19 +532,29 @@ class MainWindow(QMainWindow):
         self._load_window_geometry()
         self._refresh_queue_table()
         self._check_for_updates_startup()
+        self._check_tools_startup()
         self.setAcceptDrops(True)
         self._setup_shortcuts()
 
     def _build_encoder_map(self):
         available = self.encoder_manager.get_available_encoders()
-        recommended = self.encoder_manager.get_recommended_encoder()
         encoder_map = {}
-        for enc in ['nvenc_h265', 'nvenc_h264', 'qsv_h265', 'qsv_h264', 'amf_h265', 'amf_h264', 'x265', 'x264', 'libsvtav1']:
-            if enc in available:
-                info = self.encoder_manager.get_encoder_info(enc)
-                display = info['name']
-                encoder_map[display] = enc
+        for enc in available:
+            info = self.encoder_manager.get_encoder_info(enc)
+            display = info['name']
+            badge = self.encoder_manager.get_badge(enc)
+            if badge:
+                display = f"{display}   {badge}"
+            encoder_map[display] = enc
         return encoder_map
+
+    def _encoder_display(self, encoder: str) -> str:
+        """Find the combo display label (incl. badge) for a family id."""
+        enc = self.encoder_manager.normalize(encoder)
+        for display, value in self.encoder_map.items():
+            if self.encoder_manager.normalize(value) == enc:
+                return display
+        return ''
 
     def _setup_shortcuts(self):
         QShortcut(QKeySequence(Qt.Key.Key_Delete), self, self._on_delete_key)
@@ -702,6 +894,21 @@ class MainWindow(QMainWindow):
         self.act_update_check.triggered.connect(self._toggle_update_check)
         settings_menu.addAction(self.act_update_check)
 
+        self.act_auto_tools = QAction("✅ Auto-Update Tools on Startup", self)
+        auto_tools = self.config.get('general', 'auto_update_tools', True)
+        self.act_auto_tools.setCheckable(True)
+        self.act_auto_tools.setChecked(auto_tools)
+        self.act_auto_tools.setText(f"{'✅' if auto_tools else '☐'} Auto-Update Tools on Startup")
+        self.act_auto_tools.triggered.connect(self._toggle_auto_tools)
+        self.act_auto_tools.setToolTip(
+            "On startup, download latest ffmpeg / NVEncC builds automatically")
+        settings_menu.addAction(self.act_auto_tools)
+
+        act_tools = QAction("🛠 &Tools & Encoders…", self)
+        act_tools.triggered.connect(lambda: self._show_tools_dialog())
+        act_tools.setToolTip("View and update HandBrakeCLI, ffmpeg and NVEncC")
+        settings_menu.addAction(act_tools)
+
         help_menu = menubar.addMenu("&Help")
         act_help_browser = QAction("📖 &User Guide (Help Browser)", self)
         act_help_browser.setShortcut(QKeySequence("F1"))
@@ -815,19 +1022,43 @@ class MainWindow(QMainWindow):
         self.encoder_combo.currentTextChanged.connect(self._on_encoder_changed)
         for display in self.encoder_map.keys():
             self.encoder_combo.addItem(display)
-        self.encoder_combo.setToolTip("Select video encoder (hardware or CPU)")
+        # Recommend the best encoder for this hardware as the initial default —
+        # the user can always switch (recommend, don't force).
+        wanted = self.encoder
+        if wanted == 'auto' or not self.encoder_manager.is_available(wanted):
+            wanted = self.encoder_manager.get_recommended_encoder()
+        default_display = self._encoder_display(wanted)
+        if default_display:
+            self.encoder_combo.setCurrentText(default_display)
+        self.encoder_combo.setToolTip("Select video encoder — ★ marked = best for your hardware")
         self.encoder_combo.setWhatsThis(
             "<b>Video Encoder</b><br>"
             "Choose the encoding engine.<br><br>"
+            "<b>★ Best</b> — recommended for your hardware (auto-selected, not forced).<br>"
+            "<b>GPU</b> encoders are 3-5x faster but may produce slightly larger files.<br><br>"
             "<b>NVENC H.265</b> — NVIDIA GPU, very fast, good quality<br>"
+            "<b>NVEncC</b> — rigaya native NVIDIA encoder (auto-downloadable)<br>"
             "<b>QSV H.265</b> — Intel GPU, fast, low power<br>"
             "<b>AMF H.265</b> — AMD GPU, fast encoding<br>"
             "<b>x265</b> — CPU, excellent quality, slower<br>"
             "<b>x264</b> — CPU, great compatibility<br>"
-            "<b>SVT-AV1</b> — CPU, best compression, very slow<br><br>"
-            "Hardware encoders are 3-5x faster but may produce slightly larger files."
+            "<b>SVT-AV1</b> — CPU AV1, best compression, 10-bit capable<br><br>"
+            "Tick 'Preserve source bit depth' to keep 10-bit color instead of down-converting."
         )
         enc_layout.addWidget(self.encoder_combo)
+        # SVT-AV1 speed preset (0 = best/ slowest ... 12 = fastest)
+        av1_row = QHBoxLayout()
+        av1_row.addWidget(QLabel("AV1 Speed:"))
+        self.av1_speed_combo = QComboBox()
+        for val in (0, 2, 4, 6, 8, 10, 12):
+            label = f"{val} " + {0: '(Best)', 6: '(Balanced — default)', 12: '(Fastest)'}.get(val, '')
+            self.av1_speed_combo.addItem(label.strip(), val)
+        self.av1_speed_combo.setCurrentIndex(3)  # 6 (Balanced)
+        self.av1_speed_combo.setToolTip("SVT-AV1 encode speed: 0 = best quality/slowest, 12 = fastest")
+        av1_row.addWidget(self.av1_speed_combo)
+        self.av1_speed_row = av1_row
+        enc_layout.addLayout(av1_row)
+        self._on_encoder_changed(self.encoder_combo.currentText())
         hw_text = f"🖥️ {self.encoder_manager.get_hardware_name()}"
         recommended = self.encoder_manager.get_recommended_encoder()
         if recommended:
@@ -838,6 +1069,30 @@ class MainWindow(QMainWindow):
         hw_label.setWordWrap(True)
         enc_layout.addWidget(hw_label)
         layout.addWidget(encoder_group)
+
+        crop_group = QGroupBox("Crop & Color (v9.7)")
+        crop_layout = QVBoxLayout(crop_group)
+        self.crop_none_radio = QRadioButton("Preserve full frame (no crop)")
+        self.crop_auto_radio = QRadioButton("Auto-crop black bars")
+        self.crop_custom_radio = QRadioButton("Custom crop:")
+        self.crop_none_radio.setChecked(True)
+        self.crop_none_radio.setToolTip("Default: never remove pixels. Fixes HandBrake auto-crop over-cropping 1080p → 960p.")
+        self.crop_auto_radio.setToolTip("Let HandBrake remove detected black bars.")
+        self.crop_custom_radio.setToolTip("Enter exact crop in pixels: Top:Bottom:Left:Right")
+        for r in (self.crop_none_radio, self.crop_auto_radio, self.crop_custom_radio):
+            crop_layout.addWidget(r)
+        crop_val_row = QHBoxLayout()
+        self.crop_custom_edit = QLineEdit("0:0:0:0")
+        self.crop_custom_edit.setEnabled(False)
+        self.crop_custom_edit.setPlaceholderText("Top:Bottom:Left:Right")
+        self.crop_custom_radio.toggled.connect(lambda c: self.crop_custom_edit.setEnabled(c))
+        crop_val_row.addWidget(self.crop_custom_edit)
+        crop_layout.addLayout(crop_val_row)
+        self.bitdepth_check = QCheckBox("Preserve source bit depth (10-bit)")
+        self.bitdepth_check.setChecked(True)
+        self.bitdepth_check.setToolTip("Keeps 10-bit color (uses *_10bit encoders) instead of converting to 8-bit.")
+        crop_layout.addWidget(self.bitdepth_check)
+        layout.addWidget(crop_group)
 
         quality_group = QGroupBox("Quality (RF)")
         qual_layout = QVBoxLayout(quality_group)
@@ -922,6 +1177,7 @@ class MainWindow(QMainWindow):
         self.mkv_radio.setChecked(self.format == 'mkv')
         self.mkv_radio.setToolTip("MKV output — best for multiple audio/subtitle tracks and chapters")
         self.mkv_radio.setWhatsThis("<b>MKV Format</b><br>Matroska container. Best for multiple audio tracks, subtitle tracks, and chapter markers. Supports virtually any codec. Less compatible with older devices.")
+        self.mkv_radio.toggled.connect(lambda c: self._set_format('mkv') if c else None)
         fmt_layout.addWidget(self.mp4_radio)
         fmt_layout.addWidget(self.mkv_radio)
         layout.addWidget(format_group)
@@ -1220,11 +1476,34 @@ class MainWindow(QMainWindow):
         event.accept()
 
     def _on_encoder_changed(self, text):
-        self.encoder = self.encoder_map.get(text, 'x265')
+        enc = self.encoder_map.get(text, '')
+        if enc:
+            self.encoder = enc
+        # AV1 speed row only matters for AV1 encoders
+        is_av1 = self.encoder in ('svt_av1', 'nvenc_av1', 'nvencc_av1')
+        if hasattr(self, 'av1_speed_row'):
+            for i in range(self.av1_speed_row.count()):
+                w = self.av1_speed_row.itemAt(i).widget()
+                if isinstance(w, QComboBox):
+                    w.setEnabled(is_av1)
 
     def _on_quality_changed(self, value):
         self.quality = value
         self.quality_label.setText(f"Current: {value}")
+
+    def _current_crop_mode(self) -> str:
+        """Map the crop radio group to a ConversionSettings crop_mode value."""
+        if hasattr(self, 'crop_custom_radio') and self.crop_custom_radio.isChecked():
+            return 'custom'
+        if hasattr(self, 'crop_auto_radio') and self.crop_auto_radio.isChecked():
+            return 'auto'
+        return 'none'
+
+    def _current_av1_preset(self) -> Optional[str]:
+        """Current SVT-AV1 speed preset (only applied to AV1 encoders)."""
+        if hasattr(self, 'av1_speed_combo') and self.encoder in ('svt_av1', 'nvenc_av1', 'nvencc_av1'):
+            return str(self.av1_speed_combo.currentData())
+        return None
 
     def _on_audio_encoder_changed(self, text):
         is_copy = (text == 'copy')
@@ -1588,9 +1867,7 @@ class MainWindow(QMainWindow):
         self.status_label.setText("Starting conversion...")
 
         resolved_encoder = self.encoder
-        if resolved_encoder == 'auto' or resolved_encoder not in (
-            e for e in ['nvenc_h265', 'nvenc_h264', 'qsv_h265', 'qsv_h264',
-                        'amf_h265', 'amf_h264', 'x265', 'x264', 'libsvtav1']):
+        if resolved_encoder == 'auto' or not self.encoder_manager.is_available(resolved_encoder):
             resolved_encoder = self.encoder_manager.get_recommended_encoder()
 
         settings = ConversionSettings(
@@ -1607,6 +1884,10 @@ class MainWindow(QMainWindow):
             external_srt_burn=self.external_srt_burn,
             external_srt_default=self.external_srt_default,
             metadata_preserve=self.metadata_preserve,
+            crop_mode=self._current_crop_mode(),
+            crop_custom=self.crop_custom_edit.text() if self.crop_custom_radio.isChecked() else '',
+            preserve_bit_depth=self.bitdepth_check.isChecked(),
+            encoder_preset=self._current_av1_preset(),
         )
         settings.metadata_preserve_flag = self.hb_manager.metadata_flag() if self.hb_manager.detect() else None
 
@@ -1789,7 +2070,11 @@ class MainWindow(QMainWindow):
                     'audio_encoder': self.audio_encoder,
                     'audio_bitrate': int(self.audio_bit_combo.currentText()) if self.audio_encoder != 'copy' else None,
                     'audio_track_overrides': self.audio_track_overrides if self.audio_track_overrides else None,
-                    'output_format': self.format
+                    'output_format': self.format,
+                    'crop_mode': self._current_crop_mode(),
+                    'crop_custom': self.crop_custom_edit.text() if hasattr(self, 'crop_custom_edit') and self.crop_custom_radio.isChecked() else '',
+                    'preserve_bit_depth': self.bitdepth_check.isChecked() if hasattr(self, 'bitdepth_check') else True,
+                    'encoder_preset': self._current_av1_preset(),
                 }
             )
             self.queue_manager.add_job(job)
@@ -1858,6 +2143,42 @@ class MainWindow(QMainWindow):
         self.config.save()
         self.act_update_check.setText(f"{'✅' if checked else '☐'} Check for Updates on Startup")
 
+    def _toggle_auto_tools(self, checked):
+        self.config.set('general', 'auto_update_tools', checked)
+        self.config.save()
+        self.act_auto_tools.setText(f"{'✅' if checked else '☐'} Auto-Update Tools on Startup")
+
+    def _check_tools_startup(self):
+        """Background check + auto-update of the encoding tools."""
+        try:
+            from utils import tool_updater
+            tool_updater.ensure_bin_dir_on_path()
+        except Exception as e:
+            self._log(f"Tool updater unavailable: {e}")
+            return
+        auto = self.config.get('general', 'auto_update_tools', True)
+        self._tools_worker = ToolUpdaterWorker(auto)
+        self._tools_worker.status_ready.connect(self._on_tool_status)
+        self._tools_worker.auto_updated.connect(self._on_tool_auto_updated)
+        self._tools_worker.start()
+
+    def _on_tool_status(self, st):
+        if st.error:
+            self._log(f"Tools: {st.display} check failed: {st.error}")
+            return
+        if st.update_available:
+            self._log(f"Tools: {st.display} {st.installed_version or 'missing'} → "
+                      f"{st.latest_version} available")
+        else:
+            self._log(f"Tools: {st.display} {st.installed_version or 'missing'} is current")
+
+    def _on_tool_auto_updated(self, st):
+        self.status_label.setText(f"🛠 {st.display} updated to {st.latest_version}")
+
+    def _show_tools_dialog(self):
+        dlg = ToolsDialog(self.config, self)
+        dlg.exec()
+
     def _ensure_handbrake_cli(self):
         """Detect HandBrakeCLI; offer to install via apt if missing."""
         if self.hb_manager.detect():
@@ -1906,25 +2227,14 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Install Failed", msg)
 
     def _ensure_ffmpeg(self):
-        """Detect ffmpeg; install via apt if missing; auto-update if newer available."""
+        """Ensure ffmpeg is present; the Tool Updater keeps it at the latest build."""
         ffmpeg_found = shutil.which("ffmpeg")
         if ffmpeg_found:
-            self._log("ffmpeg detected")
-            auto_update = self.config.get('general', 'auto_update_handbrake', True)
-            if auto_update:
-                # Get current installed version
-                current_ver = self._get_ffmpeg_version()
-                avail, latest = HandBrakeManager.check_apt_package_update("ffmpeg", current_ver)
-                if avail:
-                    self._log(f"ffmpeg {latest} available — updating…")
-                    ok, msg = HandBrakeManager.update_apt_package("ffmpeg", "ffmpeg")
-                    if ok:
-                        self._log("ffmpeg updated")
-                    else:
-                        self._log(f"ffmpeg update failed: {msg}")
+            ver = self._get_ffmpeg_version()
+            self._log(f"ffmpeg detected ({ver or 'unknown'}) — Tool Updater keeps it current")
             return
 
-        self._log("ffmpeg not found — install required")
+        self._log("ffmpeg not found — Tool Updater will download the latest build")
         if not shutil.which("apt"):
             QMessageBox.critical(
                 self, "ffmpeg Required",
@@ -1936,7 +2246,7 @@ class MainWindow(QMainWindow):
             self, "Install ffmpeg?",
             "ffmpeg is not installed on your system.\n\n"
             "It is needed for preserving video metadata (tags, title, etc.).\n"
-            "Would you like to install it now via apt?\n"
+            "The Tool Updater can download it automatically. Install via apt instead?\n"
             "(Requires administrator password via pkexec.)",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
 

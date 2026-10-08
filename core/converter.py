@@ -38,6 +38,12 @@ class ConversionSettings:
     advanced: Optional[dict] = None
     metadata_preserve: bool = True
     metadata_preserve_flag: Optional[str] = None
+    # v9.7.0: crop / bit-depth / encoder preset
+    crop_mode: str = "none"               # 'none' (preserve full frame) | 'auto' | 'custom'
+    crop_custom: str = ""                 # "top:bottom:left:right"
+    preserve_bit_depth: bool = True
+    bit_depth: int = 8                    # effective target bit depth (UI/source)
+    encoder_preset: Optional[str] = None  # SVT-AV1 speed etc.
 
     def __post_init__(self):
         if self.external_srt_files is None:
@@ -1024,9 +1030,26 @@ class Converter:
                 pass
 
     def _build_command(self, input_path: str, output_path: str, settings: ConversionSettings) -> list:
+        # rigaya NVEncC encoder families use a separate CLI (not HandBrakeCLI)
+        if self.encoder_manager.encode_backend(settings.encoder) == 'nvenc':
+            return self._build_nvenc_command(input_path, output_path, settings)
+
+        bit_depth = self._effective_bit_depth(input_path, settings)
         cmd = list(self._hb_cmd) + ['-i', input_path, '-o', output_path,
-               '--encoder', self.encoder_manager.to_handbrake_encoder(settings.encoder),
+               '--encoder', self.encoder_manager.to_handbrake_encoder(settings.encoder, bit_depth),
                '--quality', str(settings.quality)]
+
+        # Crop control — default 'none' preserves the full frame (stops
+        # HandBrake auto-crop from removing real picture on dark content).
+        if settings.crop_mode == 'custom' and settings.crop_custom:
+            cmd.extend(['--crop-mode', 'custom', '--crop', settings.crop_custom])
+        elif settings.crop_mode == 'auto':
+            cmd.extend(['--crop-mode', 'auto'])
+        else:
+            cmd.extend(['--crop-mode', 'none'])
+
+        if settings.encoder_preset:
+            cmd.extend(['--encoder-preset', str(settings.encoder_preset)])
 
         if settings.audio_track_overrides:
             tracks = sorted(settings.audio_track_overrides.keys())
@@ -1087,6 +1110,54 @@ class Converter:
             else:
                 cmd.extend(['-x', 'cabac=1:ref=5:analyse=0x133:me=umh:subme=9:chroma-me=1:deadzone-inter=21:deadzone-intra=11:b-adapt=2:rc-lookahead=60:vbv-maxrate=10000:vbv-bufsize=10000:qpmax=69:bframes=5:direct=auto'])
 
+        return cmd
+
+    def _effective_bit_depth(self, input_path: str, settings: ConversionSettings) -> int:
+        """Resolve the target color bit depth.
+
+        When ``preserve_bit_depth`` is enabled the source is probed so 10-bit
+        sources are not silently down-converted to 8-bit. When disabled the
+        output is forced to 8-bit regardless of the source.
+        """
+        if not settings.preserve_bit_depth:
+            return 8
+        source_depth = self._probe_source_bit_depth(input_path)
+        if source_depth is not None and source_depth >= 10:
+            return source_depth
+        return settings.bit_depth or 8
+
+    def _probe_source_bit_depth(self, input_path: str) -> Optional[int]:
+        """Return the source video bit depth (10 for yuv420p10le, etc.)."""
+        try:
+            from core.analyzer import MediaAnalyzer
+            info = MediaAnalyzer().analyze(input_path)
+            return info.bit_depth if info else None
+        except Exception as e:
+            logger.debug(f"Bit-depth probe failed for {input_path}: {e}")
+            return None
+
+    def _build_nvenc_command(self, input_path: str, output_path: str,
+                             settings: ConversionSettings) -> list:
+        """Build a rigaya NVEncC command for nvencc_* encoder families."""
+        from core.encoder import NVENC_FAMILY_IDS
+
+        tool = self.encoder_manager.get_nvenc_tool() or 'NVEncC'
+        codec, ten_bit = NVENC_FAMILY_IDS.get(
+            self.encoder_manager.normalize(settings.encoder), ('hevc', True))
+
+        cmd = [tool, '-i', input_path, '-o', output_path,
+               '--codec', codec,
+               '-c', 'q', '--cq', str(settings.quality)]
+
+        # 10-bit output when source/target is 10-bit
+        if self._effective_bit_depth(input_path, settings) >= 10 and ten_bit:
+            cmd += ['--output-depth', '10']
+
+        preset = settings.encoder_preset or 'balanced'
+        cmd += ['--preset', preset]
+
+        # Copy all audio tracks (container-compatible codecs).
+        cmd += ['--audio-copy']
         return cmd
 
     def _build_subtitle_args(self, settings: ConversionSettings) -> list:

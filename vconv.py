@@ -55,7 +55,10 @@ Examples:
     parser.add_argument('--batch', '-b', action='store_true', help='Batch mode')
     parser.add_argument('--analyze', '-a', action='store_true', help='Analyze only')
     parser.add_argument('--encoder', '-e', type=str, default='auto',
-                       choices=['auto', 'nvenc_h265', 'nvenc_h264', 'qsv_h265', 'qsv_h264', 'amf_h265', 'amf_h264', 'x265', 'x264', 'libsvtav1'])
+                       choices=['auto', 'x265', 'x264', 'svt_av1',
+                                'nvenc_h265', 'nvenc_h264', 'nvenc_av1',
+                                'qsv_h265', 'qsv_h264', 'amf_h265', 'amf_h264',
+                                'nvencc_hevc', 'nvencc_h264', 'nvencc_av1'])
     parser.add_argument('--quality', '-q', type=int, default=27, metavar='0-51', help='RF quality (default: 27)')
     parser.add_argument('--preset', '-p', type=str, default=None,
                        choices=['fast', 'balanced', 'high_quality', 'archive', 'nvenc_fast', 'nvenc_balanced', 'nvenc_quality', 'web_optimized', 'mobile', 'tv_show'])
@@ -116,6 +119,9 @@ def analyze_files_cli(files: list, analyzer: MediaAnalyzer):
 
 def convert_files_cli(files: list, args, logger, encoder_manager):
     encoder = encoder_manager.get_recommended_encoder() if args.encoder == 'auto' else args.encoder
+    if args.encoder != 'auto' and not encoder_manager.is_available(encoder):
+        logger.warning(f"Encoder {encoder!r} unavailable on this machine — using {encoder_manager.get_recommended_encoder()!r}")
+        encoder = encoder_manager.get_recommended_encoder()
     settings = ConversionSettings(
         encoder=encoder, quality=args.quality,
         audio_encoder=args.audio_encoder,

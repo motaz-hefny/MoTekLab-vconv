@@ -5,6 +5,31 @@ All notable changes to the vconv project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [9.7.0] - 2026-10-08
+
+### Added
+- **Universal encoder support (capability engine)**: All encoders your hardware actually supports are now offered — CPU (x264, x265, SVT-AV1, VP8/VP9, MPEG-4/2, Theora) and GPU (NVENC H.264/HEVC via HandBrake, rigaya **NVEncC**). The encoder list is probed at runtime from `HandBrakeCLI --help` (`core/encoder.py`), not hardcoded.
+- **"Best" recommendation badges**: Each encoder in the dropdown shows `★ Best for your GPU` (or `★ Best`) based on the detected hardware. The app recommends but **never forces** — your saved selection always wins.
+- **10-bit encoding preservation**: New "Preserve source bit depth" option (default on) keeps 10-bit sources 10-bit in the output (`--encoder-tune`/10-bit encoder variants such as `x265_10bit`, `svt_av1_10bit`, `nvenc_h265_10bit`), instead of silently down-converting to 8-bit.
+- **Crop control**: New "Crop & Color" group. Default = **Preserve full frame** (no auto-crop), fixing the over-crop bug where 1080p video lost ~60px per edge (HandBrake auto-crop) or came out smaller than the source. Options: Preserve full frame / Auto (HandBrake) / Custom crop (`top:bottom:left:right`).
+- **SVT-AV1 speed control**: Encoder-preset slider (0–12, default Balanced) appears only when an AV1 encoder is selected.
+- **In-app Tool Updater**: Settings → Tools & Encoders keeps **HandBrakeCLI, ffmpeg and NVEncC** at their official latest. ffmpeg & NVEncC auto-download on startup (no root needed) into `~/.local/share/vconv/tools` and are put on `PATH` automatically. HandBrakeCLI (no official Linux binary) updates via Flatpak or your package manager.
+- **NVEncC support**: GPU encodes can route through rigaya NVEncC (NVENC H.264/HEVC, 10-bit).
+
+### Fixed
+- **Output format radio ignored**: Selecting **MKV** via the Format radio group visually checked the button but the output was still saved as `.mp4`. Root cause: `mkv_radio` had no `.toggled` handler, so `self.format` stayed at the config default (`'mp4'`). Every format radio now has its own `.toggled` handler wiring into `_set_format` (`ui/main_window.py`). The Settings → Format menu path already worked, which made the bug look intermittent.
+- **CLI stale encoder ids**: `vconv --encoder` rejected the fixed AV1 id (`svt_av1`) and had no NVEncC families; choices now match the v9.7.0 catalog and an unavailable encoder falls back to the recommended one.
+- **File only ever got bigger / quality dropped**: A 10-bit AV1 source could be down-converted to 8-bit x264 *and* over-cropped, producing a larger, lower-quality file. Both root causes are now fixed (10-bit preservation + crop defaults to full frame).
+- **AV1 encoder was invalid / hidden**: HandBrake's real AV1 id is `svt_av1`/`svt_av1_10bit` (not `libsvtav1`), and it was hidden on NVIDIA boxes — now probed, offered, and recommended as best where appropriate.
+
+### Changed
+- **Version**: 9.6.1 → 9.7.0
+- `core/analyzer.py` `MediaInfo` now reports `pix_fmt` / `bit_depth`.
+- `core/converter.py` `ConversionSettings` gained `crop_mode`, `crop_custom`, `preserve_bit_depth`, `bit_depth`, `encoder_preset`; `_build_command` emits the matching HandBrake/CV args.
+- `ui/main_window.py`: encoder dropdown now built from `EncoderManager.get_available_encoders()` with badges; ffmpeg is kept latest by the Tool Updater instead of apt auto-update.
+
+---
+
 ## [9.6.1] - 2026-05-18
 
 ### Added
