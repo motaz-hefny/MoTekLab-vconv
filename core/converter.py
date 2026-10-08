@@ -1108,7 +1108,7 @@ class Converter:
                 x_opts = ':'.join(f"{k}={v}" for k, v in settings.advanced.items())
                 cmd.extend(['-x', x_opts])
             else:
-                cmd.extend(['-x', 'cabac=1:ref=5:analyse=0x133:me=umh:subme=9:chroma-me=1:deadzone-inter=21:deadzone-intra=11:b-adapt=2:rc-lookahead=60:vbv-maxrate=10000:vbv-bufsize=10000:qpmax=69:bframes=5:direct=auto'])
+                cmd.extend(['-x', 'cabac=1:ref=5:analyse=0x133:me=umh:subme=7:chroma-me=1:deadzone-inter=21:deadzone-intra=11:b-adapt=2:rc-lookahead=60:vbv-maxrate=10000:vbv-bufsize=10000:qpmax=69:bframes=5:direct=auto'])
 
         return cmd
 

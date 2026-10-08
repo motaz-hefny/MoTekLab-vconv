@@ -26,7 +26,7 @@ from PyQt6.QtWidgets import (
     QListWidget, QListWidgetItem, QTextEdit, QTabWidget, QScrollArea,
     QWhatsThis, QGridLayout, QProgressDialog
 )
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSize, QUrl, QTimer
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSize, QUrl, QTimer, QEvent
 from PyQt6.QtGui import QAction, QFont, QKeySequence, QIcon, QPixmap, QShortcut
 
 from core.constants import VIDEO_EXTENSIONS
@@ -620,8 +620,8 @@ class MainWindow(QMainWindow):
         self.output_dir = self.config.get('defaults', 'output_dir', 'source')
         self.last_folder = self.config.get('defaults', 'last_folder', '')
         self.default_folder = self.config.get('defaults', 'default_folder', '')
-        self.audio_encoder = 'copy'
-        self.audio_bitrate = 128
+        self.audio_encoder = self.config.get('defaults', 'audio_encoder', 'copy')
+        self.audio_bitrate = self.config.get('defaults', 'audio_bitrate', 128)
         self.subtitle_mode = 'all'
         self.subtitle_burn = False
         self.subtitle_lang_list = 'eng,ara'
@@ -1139,6 +1139,18 @@ class MainWindow(QMainWindow):
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
 
+    def eventFilter(self, obj, ev):
+        """Ignore mouse-wheel changes on settings combos/sliders.
+
+        Qt routes wheel events to the widget under the cursor regardless of
+        focus, so scrolling the page silently rewrote encoder/audio/preset
+        state (2026-10-08 acceptance bug: AV1 -> x265, copy -> AAC, RF 27
+        -> 24). Click/keyboard still work normally.
+        """
+        if ev.type() == QEvent.Type.Wheel and isinstance(obj, (QComboBox, QSlider)):
+            return True
+        return super().eventFilter(obj, ev)
+
     def _create_left_panel(self):
         panel = QWidget()
         layout = QVBoxLayout(panel)
@@ -1149,9 +1161,12 @@ class MainWindow(QMainWindow):
         enc_layout = QVBoxLayout(encoder_group)
         self.encoder_combo = QComboBox()
         self.encoder_combo.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
-        self.encoder_combo.currentTextChanged.connect(self._on_encoder_changed)
         for display in self.encoder_map.keys():
             self.encoder_combo.addItem(display)
+        # Connect AFTER the items exist: addItem fires currentTextChanged and
+        # would clobber the config value ('auto') before the recommendation
+        # logic below reads it.
+        self.encoder_combo.currentTextChanged.connect(self._on_encoder_changed)
         # Recommend the best encoder for this hardware as the initial default —
         # the user can always switch (recommend, don't force).
         wanted = self.encoder
@@ -1256,11 +1271,13 @@ class MainWindow(QMainWindow):
             "<b>Presets</b><br>"
             "Pre-configured settings for common use cases.<br><br>"
             "<b>fast</b> — Quick encoding, RF 27<br>"
-            "<b>balanced</b> — Everyday use, RF 25<br>"
-            "<b>high_quality</b> — Important videos, RF 22<br>"
+            "<b>balanced</b> — Everyday use, RF 27<br>"
+            "<b>high_quality</b> — Important videos, RF 23<br>"
             "<b>archive</b> — Long-term storage, RF 20<br>"
-            "<b>nvenc_fast/balanced/quality</b> — NVIDIA-optimized<br>"
-            "<b>tv_show</b> — Television episodes, RF 24"
+            "<b>nvenc_fast/balanced/quality</b> — NVIDIA-optimized, RF 27/25/22<br>"
+            "<b>tv_show</b> — Television episodes, RF 27<br>"
+            "<b>web_optimized</b> — Streaming, RF 25<br>"
+            "<b>mobile</b> — Smaller files, RF 28"
         )
         preset_layout.addWidget(self.preset_combo)
         layout.addWidget(preset_group)
@@ -1330,8 +1347,9 @@ class MainWindow(QMainWindow):
         aud_layout.addRow("Encoder:", self.audio_enc_combo)
         self.audio_bit_combo = QComboBox()
         self.audio_bit_combo.addItems(['64', '96', '128', '192', '256', '320'])
-        self.audio_bit_combo.setCurrentText('128')
-        self.audio_bit_combo.setEnabled(False)
+        self.audio_bit_combo.setCurrentText(str(self.audio_bitrate))
+        self.audio_enc_combo.setCurrentText(self.audio_encoder)
+        self._on_audio_encoder_changed(self.audio_enc_combo.currentText())
         self.audio_bit_combo.setToolTip("Audio bitrate in kbps — higher = better quality, larger file")
         self.audio_bit_combo.setWhatsThis("<b>Audio Bitrate</b><br>64-96 kbps for speech, 128-192 kbps for general use, 256-320 kbps for high fidelity. Higher bitrate = larger file size.")
         aud_layout.addRow("Bitrate:", self.audio_bit_combo)
@@ -1436,6 +1454,9 @@ class MainWindow(QMainWindow):
             "after encoding. Disable to skip metadata handling for faster processing.")
         self.metadata_check.toggled.connect(lambda c: setattr(self, 'metadata_preserve', c))
         layout.addWidget(self.metadata_check)
+
+        for wgt in panel.findChildren((QComboBox, QSlider)):
+            wgt.installEventFilter(self)
 
         layout.addStretch()
         return panel
