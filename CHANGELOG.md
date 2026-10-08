@@ -7,7 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **In-place self-update** (`utils/self_update.py` + `UpdateInstallWorker` in `ui/main_window.py`): the update dialog's new **🔄 Update & Restart** button downloads the matching GitHub release artifact and installs it in place — `.deb` installs via `pkexec dpkg -i` (root), AppImage builds via an atomic self-replace. The app then relaunches itself automatically. Development checkouts fall back to opening the release page (no auto-install over source).
+- **Installed-aware start menu** (`utils/xdg_integration.py`): when vconv is installed as a `.deb` (`/opt/vconv/vconv.py`), `ensure_xdg_integration` rewrites `~/.local/share/applications/vconv.desktop` to `Exec=python3 /opt/vconv/vconv.py --gui` with the installed version in `Comment=` — so the Start Menu always launches the installed copy, never a dev checkout or AppImage that happened to run last.
+
 ### Fixed
+- **Start menu launched the wrong version**: the user-scope launcher kept its original `Exec=` pointing at a dev checkout because `/opt/vconv`'s layout (no `public/` dir, no shipped `.desktop`) made `ensure_xdg_integration` bail early. It now probes `vconv-icon-256.png`, falls back to the system icon, and synthesizes the template if the deb omits it.
 - **Tools & Encoders dialog stuck on "checking…"** (`ui/main_window.py`): `ToolUpdaterWorker.run()` imported `TOOL_IDS` as if it were a module-level name, but it is a class attribute (`ToolUpdater.TOOL_IDS`) — the `from utils.tool_updater import ToolUpdater, TOOL_IDS` statement raised `ImportError` before any status was computed, so the dialog rows froze on "checking…" with Update disabled and the startup auto-tool-update silently did nothing. The worker now imports only `ToolUpdater` and iterates `ToolUpdater.TOOL_IDS`. New regression test `tests/test_tool_worker.py` (7 checks) executes the real `run()` body against a fake no-network `ToolUpdater`.
 
 ## [9.7.0] - 2026-10-08

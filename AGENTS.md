@@ -1,5 +1,27 @@
 # Agent Notes
 
+## Single-Version Start Menu Pattern (installed-aware XDG)
+When a `.deb`-installed copy and a dev checkout (or AppImage) coexist, the Start Menu launcher often pins the FIRST app that ran — not the installed one. Rule enforced at `utils/xdg_integration.py:ensure_xdg_integration`:
+
+1. **Installed-aware detection**: if `/opt/vconv/vconv.py` exists (deb install), the launcher's `Exec` is ALWAYS `python3 /opt/vconv/vconv.py --gui` regardless of which instance called `ensure_xdg_integration`. `Comment=` is patched to the *installed* version read from `/opt/vconv/utils/version.py`.
+2. **Deb layout differs from dev**: the deb has no `public/` dir and ships no `.desktop` template. Icon probe order for installed mode: `/opt/vconv/vconv-icon-256.png` → `/opt/vconv/public/…` → system `holicolor/256x256/apps/vconv.png`. Template falls back to the source tree that shipped the module (`Path(__file__).parent.parent / "vconv.desktop"`).
+3. **Always theme-ize the icon**: rewrite `Icon=` to `Icon=vconv` (never an absolute deb path).
+4. Call sites: `ui/main_window.py:~2425` `ensure_xdg_integration(Path(__file__).parent.parent)` (= `/opt/vconv` when installed).
+5. Manual regeneration: `cp utils/xdg_integration.py /opt/vconv/utils/ && python3 -c "…ensure_xdg_integration(Path('/opt/vconv'))"`.
+
+## In-place Self-Update Pattern (v9.7.2)
+**Data flow**: Help → Check for Updates → `_show_update_dialog` → `🔄 Update & Restart` → `_start_auto_update` → `UpdateInstallWorker(QThread)` → `utils/self_update.py`:
+`fetch_release_assets()` (GitHub releases/latest API) → `detect_install_mode()` (`$APPIMAGE`→appimage; `/opt/vconv/vconv.py` exists→deb; else dev) → `select_asset_for_mode()` (`*_all.deb` / `*.AppImage`) → `download_asset()` (urllib chunked, streamed to `<temp>.part`, progress callbacks) → install → `relaunch_app()` then `QTimer.singleShot(1500, quit)`.
+
+**Install mechanisms**:
+- **deb**: `pkexec dpkg -i <deb>` (polkit prompt). Without `pkexec` → clean failure message, falls back to opening the release page.
+- **AppImage**: `os.rename(current→.old)` then `os.replace(downloaded→current)` (+chmod +x).
+- **dev checkout**: dialog refuses auto-install, opens release page instead (never install over source).
+
+**Key files**: `utils/self_update.py` (new), `ui/main_window.py` (`UpdateInstallWorker`, `_start_auto_update`, `_on_update_install_finished`, `QProgressDialog`). Mode detection uses the installed layout, NOT the process CWD — works even when `/opt/vconv` runs its own utils via `sys.path`.
+
+**Test strategy** (`tests/test_self_update.py`, 16 checks): API call mocked (`mock.patch urlopen`), downloads via `file://` URIs, failure paths short-circuit (patched `pkexec`/`APPIMAGE`). Never touches network or `~/.config`.
+
 ## XDG Icon/Start Menu Integration Pattern
 When a PyQt6 app on Linux has no taskbar/start menu icon:
 

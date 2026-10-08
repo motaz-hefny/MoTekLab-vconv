@@ -51,3 +51,24 @@ New regression test `tests/test_tool_worker.py` (7 checks) executes the **real**
 | format_radio | 14/14 |
 
 **Live verification (offscreen, real network):** opening `ToolsDialog` after the fix populated all rows — ffmpeg `6.1.1-3ubuntu5` → latest `8.1` (outdated), nvencc `not installed` → latest `9.38` (outdated), handbrake `1.7.2` → latest `1.11.2` (outdated); every Update button enabled. The dialog completes in a few seconds when GitHub API is reachable.
+
+## Self-update + launcher work (v9.7.2 in dev)
+
+New logic added to the dev tree (pending release as v9.7.2), covered so far by **`tests/test_self_update.py` — 16/16**:
+
+| Check | Result |
+|-------|--------|
+| `select_asset_for_mode`: deb → `*_all.deb`, appimage → `*.AppImage`, dev → None, empty → None | 4/4 |
+| `detect_install_mode`: `$APPIMAGE` → `appimage`; `/opt/vconv/vconv.py` → `deb`; none → `dev` | 3/3 |
+| `download_asset` (file:// URI): content match + progress callback fired | 3/3 |
+| `fetch_release_assets` with mocked `urlopen`: tag + assets parsed | 2/2 |
+| Failure paths: `install_update` deb without `pkexec` → clean failure message; appimage without `APPIMAGE` → clean failure; no matching asset → clean failure | 4/4 |
+
+**Full suite now 136 checks — ALL PASS** (enc 36, convf 23, updater 24, worker 7, smoke 10, e2e 6, radio 14, self-update 16).
+
+**On-disk verification (this machine):**
+- `utils/xdg_integration.py` rewritten installed-aware and copied to `/opt/vconv/utils/`; `ensure_xdg_integration(Path('/opt/vconv'))` returned `True`.
+- `~/.local/share/applications/vconv.desktop` now: `Exec=python3 /opt/vconv/vconv.py --gui`, `Comment=v9.7.1 | …`, `Icon=vconv` — no remaining references to the dev checkout. Icon installed at 256/128/64/48/32.
+- `utils.self_update.detect_install_mode()` on this box → `deb`.
+
+**Test-hygiene note (v9.7.2 additions):** `test_self_update.py` never touches the network — API call is mocked, downloads use `file://` URIs, and failure paths short-circuit (patched `pkexec`/`APPIMAGE`). It writes only to `tempfile.mkdtemp` dirs.

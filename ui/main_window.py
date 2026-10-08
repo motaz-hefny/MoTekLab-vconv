@@ -24,9 +24,9 @@ from PyQt6.QtWidgets import (
     QStatusBar, QToolBar, QMenu, QFrame, QSizePolicy,
     QLineEdit, QDialog, QFormLayout, QInputDialog,
     QListWidget, QListWidgetItem, QTextEdit, QTabWidget,
-    QWhatsThis, QGridLayout
+    QWhatsThis, QGridLayout, QProgressDialog
 )
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSize, QUrl
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSize, QUrl, QTimer
 from PyQt6.QtGui import QAction, QFont, QKeySequence, QIcon, QPixmap, QShortcut
 
 from core.constants import VIDEO_EXTENSIONS
@@ -182,6 +182,40 @@ class UpdateCheckWorker(QThread):
         info = check_for_updates(self.current_version)
         self.update_found.emit(info)
         self.check_done.emit()
+
+
+class UpdateInstallWorker(QThread):
+    """Background worker: download + in-place install of a new release."""
+    progress = pyqtSignal(int)             # 0-100 during download
+    status = pyqtSignal(str)               # phase label
+    install_finished = pyqtSignal(object)  # result dict
+
+    def __init__(self, mode: str):
+        super().__init__()
+        self.mode = mode
+
+    def run(self):
+        from utils.self_update import fetch_release_assets, install_update
+        try:
+            self.status.emit("Contacting GitHub…")
+            release = fetch_release_assets()
+            if not release.get('assets'):
+                self.install_finished.emit({'success': False, 'mode': self.mode,
+                                            'relaunch': False,
+                                            'message': 'Could not fetch release assets.'})
+                return
+            result = install_update(
+                release['assets'], self.mode,
+                progress_cb=lambda done, total: self.progress.emit(
+                    int(done * 100 / total) if total else 0),
+                status_cb=self.status.emit,
+            )
+            self.install_finished.emit(result)
+        except Exception as e:
+            logger.warning("UpdateInstallWorker failed: %s", e, exc_info=True)
+            self.install_finished.emit({'success': False, 'mode': self.mode,
+                                        'relaunch': False,
+                                        'message': f"{type(e).__name__}: {e}"})
 
 
 class ToolUpdaterWorker(QThread):
@@ -2315,15 +2349,66 @@ class MainWindow(QMainWindow):
             f"<hr>"
             f"<p><b>Release notes:</b><br>{info.release_notes[:300]}</p>"
             f"<hr>"
-            f"<p>Click Download to open the release page in your browser.</p>"
+            f"<p>Click <b>Update &amp; Restart</b> to download and install the "
+            f"new version automatically (it replaces the installed copy). "
+            f"Or open the release page to download it manually.</p>"
         )
         dlg.setTextFormat(Qt.TextFormat.RichText)
-        download_btn = dlg.addButton("⬇️ Download Update", QMessageBox.ButtonRole.AcceptRole)
+        install_btn = dlg.addButton("🔄 Update & Restart", QMessageBox.ButtonRole.AcceptRole)
+        open_btn = dlg.addButton("⬇️ Open Release Page", QMessageBox.ButtonRole.ActionRole)
         dlg.addButton("Later", QMessageBox.ButtonRole.RejectRole)
         dlg.exec()
-        if dlg.clickedButton() == download_btn:
+        clicked = dlg.clickedButton()
+        if clicked == install_btn:
+            self._start_auto_update(info)
+        elif clicked == open_btn:
             import webbrowser
             webbrowser.open(info.release_url)
+
+    def _start_auto_update(self, info: UpdateInfo):
+        from utils.self_update import detect_install_mode
+        mode = detect_install_mode()
+        if mode == 'dev':
+            QMessageBox.information(
+                self, "Manual Update",
+                "You are running a development copy, so the app cannot install "
+                "over itself automatically.\n\nThe release page will be opened — "
+                "download the .deb or AppImage and install it manually.")
+            import webbrowser
+            webbrowser.open(info.release_url)
+            return
+        self._update_release_url = info.release_url
+        self._update_progress = QProgressDialog("Preparing…", None, 0, 100, self)
+        self._update_progress.setWindowTitle(f"Updating to v{info.latest_version}")
+        self._update_progress.setWindowModality(Qt.WindowModality.WindowModal)
+        self._update_progress.setAutoClose(False)
+        self._update_progress.setAutoReset(False)
+        self._update_progress.show()
+        worker = UpdateInstallWorker(mode)
+        worker.progress.connect(self._update_progress.setValue)
+        worker.status.connect(self._update_progress.setLabelText)
+        worker.install_finished.connect(self._on_update_install_finished)
+        self._update_install_worker = worker
+        worker.start()
+
+    def _on_update_install_finished(self, result: dict):
+        if self._update_progress is not None:
+            self._update_progress.close()
+        if result.get('success'):
+            QMessageBox.information(
+                self, "Update installed",
+                f"{result.get('message', '')}\n\nRelaunching the app…")
+            from utils.self_update import relaunch_app
+            relaunch_app(result.get('mode', 'deb'))
+            QTimer.singleShot(1500, lambda: QApplication.instance().quit())
+        else:
+            QMessageBox.warning(
+                self, "Update failed",
+                f"{result.get('message', 'Unknown error')}\n\n"
+                f"You can still install manually from the release page.")
+            import webbrowser
+            if self._update_release_url:
+                webbrowser.open(self._update_release_url)
 
     def _show_shortcuts(self):
         QMessageBox.information(self, "Keyboard Shortcuts",
