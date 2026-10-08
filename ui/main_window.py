@@ -196,9 +196,9 @@ class ToolUpdaterWorker(QThread):
 
     def run(self):
         try:
-            from utils.tool_updater import ToolUpdater, TOOL_IDS
+            from utils.tool_updater import ToolUpdater
             updater = ToolUpdater()
-            for tid in TOOL_IDS:
+            for tid in ToolUpdater.TOOL_IDS:
                 try:
                     st = updater.status(tid)
                 except Exception:

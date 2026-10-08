@@ -5,6 +5,11 @@ All notable changes to the vconv project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **Tools & Encoders dialog stuck on "checking…"** (`ui/main_window.py`): `ToolUpdaterWorker.run()` imported `TOOL_IDS` as if it were a module-level name, but it is a class attribute (`ToolUpdater.TOOL_IDS`) — the `from utils.tool_updater import ToolUpdater, TOOL_IDS` statement raised `ImportError` before any status was computed, so the dialog rows froze on "checking…" with Update disabled and the startup auto-tool-update silently did nothing. The worker now imports only `ToolUpdater` and iterates `ToolUpdater.TOOL_IDS`. New regression test `tests/test_tool_worker.py` (7 checks) executes the real `run()` body against a fake no-network `ToolUpdater`.
+
 ## [9.7.0] - 2026-10-08
 
 ### Added

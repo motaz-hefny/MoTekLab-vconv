@@ -31,3 +31,23 @@ Commands: `python3 tests/<name>.py`; GUI tests use `QT_QPA_PLATFORM=offscreen`.
 
 ## Test-hygiene note
 `test_tools_startup_smoke.py` was converted to a hermetic temp config because an earlier version wrote toggles into the real `~/.config/vconv.conf` (causing a false FAIL on the default assertion on next run).
+
+## Post-release bugfix (same day)
+**Tools & Encoders dialog stuck on "checking…"** — `ToolUpdaterWorker.run()` did `from utils.tool_updater import ToolUpdater, TOOL_IDS`, but `TOOL_IDS` is a class attribute (`ToolUpdater.TOOL_IDS`), not a module name → `ImportError` → worker died before emitting `status_ready` → rows froze at "checking…", Update buttons disabled, and the startup auto-updater silently did nothing (no GitHub call, no log lines).
+
+Fix: `ui/main_window.py` now imports only `ToolUpdater` and iterates `ToolUpdater.TOOL_IDS`. `ToolInstallWorker` was unaffected (already imported only `ToolUpdater`).
+
+New regression test `tests/test_tool_worker.py` (7 checks) executes the **real** `run()` body against a fake no-network `ToolUpdater` (statuses flow to all 3 rows, auto-update fires for ffmpeg+nvencc only — handbrake is intentionally excluded, `done` emitted exactly once, `auto_update_tools=False` performs no installs).
+
+**Full suite now 120 checks — ALL PASS:**
+| Test file | Checks |
+|-----------|--------|
+| encoder_engine | 36/36 |
+| conversion_flags | 23/23 |
+| tool_updater | 24/24 |
+| tool_worker (new) | 7/7 |
+| tools_startup_smoke | 10/10 |
+| e2e_format | 6/6 |
+| format_radio | 14/14 |
+
+**Live verification (offscreen, real network):** opening `ToolsDialog` after the fix populated all rows — ffmpeg `6.1.1-3ubuntu5` → latest `8.1` (outdated), nvencc `not installed` → latest `9.38` (outdated), handbrake `1.7.2` → latest `1.11.2` (outdated); every Update button enabled. The dialog completes in a few seconds when GitHub API is reachable.
