@@ -18,6 +18,8 @@ When a `.deb`-installed copy and a dev checkout (or AppImage) coexist, the Start
 - **AppImage**: `os.rename(current→.old)` then `os.replace(downloaded→current)` (+chmod +x).
 - **dev checkout**: dialog refuses auto-install, opens release page instead (never install over source).
 
+**Rollout gotcha (10-08 test)**: an app version built BEFORE the self-update feature (i.e. v9.7.1 and older) runs the OLD update dialog — its button opens the release page in the browser, so the user experiences "click update → manual download". The auto-install button only exists in **v9.7.2+**. When a user reports that from the Start Menu app, check the INSTALLED version (`/opt/vconv/utils/version.py`); if < 9.7.2, the fix is to upgrade once (via the dev checkout's auto-update flow, or `pkexec dpkg -i`), after which the installed app permanently has the self-update feature.
+
 **Key files**: `utils/self_update.py` (new), `ui/main_window.py` (`UpdateInstallWorker`, `_start_auto_update`, `_on_update_install_finished`, `QProgressDialog`). Mode detection uses the installed layout, NOT the process CWD — works even when `/opt/vconv` runs its own utils via `sys.path`.
 
 **Test strategy** (`tests/test_self_update.py`, 16 checks): API call mocked (`mock.patch urlopen`), downloads via `file://` URIs, failure paths short-circuit (patched `pkexec`/`APPIMAGE`). Never touches network or `~/.config`.
