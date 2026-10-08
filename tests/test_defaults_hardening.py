@@ -23,6 +23,7 @@ import re
 import sys
 import tempfile
 from pathlib import Path
+from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -187,6 +188,27 @@ def test_presets_preserve_source_audio():
               p.get('audio_encoder') == 'copy')
 
 
+def test_default_videos_dir():
+    with tempfile.TemporaryDirectory() as d:
+        home = Path(d)
+        (home / ".config").mkdir()
+        (home / ".config" / "user-dirs.dirs").write_text(
+            'XDG_VIDEOS_DIR="$HOME/Vidz"\n', encoding="utf-8")
+        check("XDG user-dirs.dirs honored ($HOME expanded)",
+              mw.default_videos_dir(home) == home / "Vidz")
+    with tempfile.TemporaryDirectory() as d:
+        home = Path(d)
+        check("missing user-dirs.dirs falls back to ~/Videos",
+              mw.default_videos_dir(home) == home / "Videos")
+    with tempfile.TemporaryDirectory() as d:
+        home = Path(d)
+        (home / ".config").mkdir()
+        (home / ".config" / "user-dirs.dirs").write_text(
+            "# comment only\n", encoding="utf-8")
+        check("missing XDG_VIDEOS_DIR key falls back to ~/Videos",
+              mw.default_videos_dir(home) == home / "Videos")
+
+
 def main():
     app = QApplication.instance() or QApplication([])
     test_x265_default_command_uses_valid_subme()
@@ -196,6 +218,7 @@ def main():
     test_audio_default_loaded_from_config()
     test_preset_whatsthis_rf_matches_json()
     test_presets_preserve_source_audio()
+    test_default_videos_dir()
     print(f"\nRESULT: ALL PASS ({PASS} checks)")
     return 0
 

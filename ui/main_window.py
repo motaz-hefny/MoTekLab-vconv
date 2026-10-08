@@ -592,6 +592,28 @@ class AudioTrackDialog(QDialog):
         return self.track_data
 
 
+def default_videos_dir(home=None):
+    """Resolve the logged-in user's XDG Videos directory; fallback ~/Videos.
+
+    Reads ~/.config/user-dirs.dirs (freedesktop user-dirs) so localized or
+    renamed video folders are honored. `home` is injectable for tests.
+    """
+    home = Path(home) if home else Path.home()
+    try:
+        text = (home / ".config" / "user-dirs.dirs").read_text(encoding="utf-8")
+    except OSError:
+        return home / "Videos"
+    for line in text.splitlines():
+        line = line.strip()
+        if line.startswith("XDG_VIDEOS_DIR"):
+            _, _, value = line.partition("=")
+            value = value.strip().strip('"')
+            value = value.replace("$HOME", str(home))
+            if value:
+                return Path(value)
+    return home / "Videos"
+
+
 class MainWindow(QMainWindow):
     """Main application window using PyQt6."""
 
