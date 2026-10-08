@@ -5,9 +5,11 @@ Managed tools (v9.7.0):
 - **ffmpeg / ffprobe**: BtbN/FFmpeg-Builds static Linux builds (no root needed)
 - **NVEncC** (rigaya NVEnc): official ``nvencc_*_amd64.deb`` extracted to the
   user tools dir (no root needed)
-- **HandBrakeCLI**: no official prebuilt Linux tarball exists (only
-  Win/mac/flatpak/source), so this tries the Flatpak CLI first and otherwise
-  reports what the latest release is for the user to install.
+- **HandBrakeCLI**: HandBrake ships **no prebuilt Linux CLI** (release assets
+  are Windows/macOS binaries, source, and a GUI-only Flatpak). Updates are
+  therefore offered only when a release actually contains a Linux
+  HandBrakeCLI asset; otherwise the dialog explains that the installed
+  version is current instead of promising an update that cannot succeed.
 
 All tools are installed under ``~/.local/share/vconv/tools``; binaries are
 symlinked into ``tools/bin`` which is prepended to ``PATH`` so existing
@@ -24,6 +26,7 @@ import threading
 import urllib.request
 import urllib.error
 import tempfile
+import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Optional
@@ -148,6 +151,28 @@ def _github_latest(repo: str) -> dict:
 def _find_asset(assets: list, pattern: re.Pattern) -> Optional[tuple]:
     for name, url in assets:
         if pattern.search(name):
+            return (name, url)
+    return None
+
+
+def _find_linux_cli_asset(assets: list) -> Optional[tuple]:
+    """Find a prebuilt HandBrakeCLI for Linux among release assets.
+
+    HandBrake publishes Windows/macOS CLI builds, source tarballs and a
+    GUI-only Flatpak — none of which are usable here, so those must NOT be
+    mistaken for a Linux update. Returns ``(name, url)`` or ``None``.
+    """
+    for name, url in assets:
+        n = name.lower()
+        if "handbrakecli" not in n:
+            continue
+        if any(bad in n for bad in ("win", "darwin", "mac", "source", ".dmg")):
+            continue
+        if n.endswith((".appimage", ".deb",
+                       ".tar.xz", ".tar.gz", ".tar.bz2", ".tgz")):
+            return (name, url)
+        # HandBrake's bare .zip assets are Windows builds — require a marker.
+        if n.endswith(".zip") and "linux" in n:
             return (name, url)
     return None
 
@@ -278,13 +303,28 @@ class ToolUpdater:
         rel = self._grab(HB_REPO)
         st.latest_version = _clean_version(rel.get("tag", ""))
         st.installed_path = _which("HandBrakeCLI") or ""
+        linux_asset = _find_linux_cli_asset(rel.get("assets") or [])
         if st.installed_version and st.latest_version:
             st.update_available = _parse_version_str(st.installed_version) < \
                                   _parse_version_str(st.latest_version)
         else:
             st.update_available = bool(st.latest_version)
-        if not st.installed_version:
-            st.note = "Install via system package manager (no official Linux binary)"
+        if not linux_asset:
+            # No prebuilt Linux CLI in this release — never offer an update
+            # that cannot succeed (the old Flatpak path used a non-existent
+            # app id and an ambiguous remote, so it always failed).
+            st.update_available = False
+            if st.latest_version and st.installed_version:
+                st.note = (f"{st.latest_version} ships no Linux HandBrakeCLI "
+                           f"build (Windows/macOS/GUI-Flatpak only) — your "
+                           f"{st.installed_version} is the newest prebuilt CLI")
+            elif st.latest_version:
+                st.note = ("No official Linux HandBrakeCLI build — install via "
+                           "system package manager (e.g. sudo apt install handbrake-cli)")
+            elif not st.installed_version:
+                st.note = "Install via system package manager (no official Linux binary)"
+        elif not st.installed_version:
+            st.note = "Not installed — click Update to download"
         return st
 
     # -- install -----------------------------------------------------------
@@ -401,37 +441,80 @@ class ToolUpdater:
             progress(100, f"NVEncC {ver} installed")
         return True
 
-    def _install_handbrake(self, progress=None, error_cb=None) -> bool:  # noqa: C901
-        """No official Linux prebuilt — try Flatpak CLI, else report latest."""
-        flatpak = _which("flatpak")
-        if flatpak:
+    def _install_handbrake(self, progress=None, error_cb=None) -> bool:
+        """Install HandBrakeCLI from a Linux release asset when one exists."""
+        rel = self._grab(HB_REPO)
+        asset = _find_linux_cli_asset(rel.get("assets") or [])
+        ver = _clean_version(rel.get("tag", "")) or "latest"
+        if not asset:
+            # The upstream release has no Linux CLI build — there is nothing
+            # to install. (The old flatpak attempt used the app id
+            # fr.handbrake.HandBrakeCLI, which does not exist on Flathub, and
+            # a bare `flatpak install flathub …` that is ambiguous whenever
+            # flathub is configured for both the system and the user.)
+            msg = (f"HandBrake {ver} ships no prebuilt Linux HandBrakeCLI "
+                   "(only Windows/macOS binaries and a GUI Flatpak are "
+                   "published) — your installed version stays current.")
+            logger.info(f"handbrake update skipped: no Linux CLI asset in {ver}")
             if progress:
-                progress(20, "Installing fr.handbrake.HandBrakeCLI via Flatpak…")
-            r = subprocess.run(
-                [flatpak, "install", "-y", "flathub", "fr.handbrake.HandBrakeCLI"],
-                capture_output=True, text=True, timeout=300)
-            if r.returncode == 0:
-                if progress:
-                    progress(100, "HandBrakeCLI installed via Flatpak")
-                return True
-            err = (r.stderr or r.stdout or "unknown flatpak error").strip()
-            msg = ("Flatpak install failed: " + err[:200] + ". "
-                   "This typically needs system-wide permission and a runtime "
-                   "download. If it keeps failing, run in a terminal:\n"
-                   "flatpak install flathub fr.handbrake.HandBrakeCLI")
-            if progress:
-                progress(0, f"Flatpak install failed: {err[:200]}")
+                progress(0, "No Linux HandBrakeCLI build in this release")
             if error_cb:
                 error_cb(msg)
             return False
-        msg = ("Flatpak not available. Install HandBrakeCLI via your package "
-               "manager (e.g. 'sudo apt install handbrake-cli'); latest release "
-               "is " + self.status_handbrake().latest_version + ".")
+        name, url = asset
         if progress:
-            progress(0, msg)
-        if error_cb:
-            error_cb(msg)
-        return False
+            progress(5, f"Downloading HandBrakeCLI {ver}…")
+        with tempfile.TemporaryDirectory(prefix="vconv_hb_") as td:
+            pkg = Path(td) / name
+            if not _download(url, pkg, progress, error_cb):
+                return False
+            if progress:
+                progress(55, "Extracting…")
+            dest = TOOLS_ROOT / f"handbrake-{ver}"
+            dest.mkdir(parents=True, exist_ok=True)
+            n = name.lower()
+            if n.endswith(".deb"):
+                r = subprocess.run(["dpkg-deb", "-x", str(pkg), str(dest)],
+                                   capture_output=True, text=True, timeout=120)
+                if r.returncode != 0:
+                    msg = f"dpkg-deb extraction failed: {(r.stderr or '')[:120]}"
+                    if progress:
+                        progress(0, "dpkg-deb extraction failed")
+                    if error_cb:
+                        error_cb(msg)
+                    return False
+            elif n.endswith((".tar.xz", ".tar.gz", ".tar.bz2", ".tgz")):
+                if not _extract_strip(pkg, dest, strip=1):
+                    if error_cb:
+                        error_cb(f"Failed to extract {name}")
+                    return False
+            elif n.endswith(".zip"):
+                with zipfile.ZipFile(pkg) as zf:
+                    zf.extractall(dest)
+            elif n.endswith(".appimage"):
+                target = dest / "HandBrakeCLI"
+                shutil.move(str(pkg), str(target))
+                target.chmod(0o755)
+            found = next(
+                (p for p in dest.rglob("*")
+                 if p.is_file() and p.name.lower() == "handbrakecli"),
+                None)
+            if not found:
+                msg = "HandBrakeCLI binary not found in downloaded package"
+                if progress:
+                    progress(0, msg)
+                if error_cb:
+                    error_cb(msg)
+                return False
+            try:
+                found.chmod(found.stat().st_mode | 0o755)
+            except OSError:
+                pass
+            _symlink(found, BIN_DIR / "HandBrakeCLI")
+            _cleanup_versions("handbrake-", keep=ver)
+        if progress:
+            progress(100, f"HandBrakeCLI {ver} installed")
+        return True
 
 
 # ---------------------------------------------------------------------------
@@ -453,7 +536,7 @@ def _find_nvenc_binary(dest: Path) -> Optional[Path]:
 def _extract_strip(tarball: Path, dest: Path, strip: int = 1) -> bool:
     """Extract a tar.xz stripping the top-level directory."""
     try:
-        with tarfile.open(tarball, "r:xz") as tar:
+        with tarfile.open(tarball, "r:*") as tar:
             # Strip the single top-level dir: extract to temp, then move contents
             tmp = dest.parent / f".{dest.name}_tmp"
             if tmp.exists():

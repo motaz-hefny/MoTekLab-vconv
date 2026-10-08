@@ -6,6 +6,7 @@ Covers:
 - GitHub release API parsing (mocked, no network)
 - Asset-name regex matching for the real release asset names
 - Version detection + update_available logic per tool
+- HandBrake: no Linux build => no update offered; real Linux asset installs
 - ensure_bin_dir_on_path() PATH handling
 - _extract_strip() with a real tar.xz
 - ToolsDialog UI status rendering (offscreen)
@@ -94,7 +95,21 @@ def test_mocked_statuses():
 
         st = u.status_handbrake()
         check("handbrake latest from tag (1.11.2)", st.latest_version == "1.11.2")
-        check("handbrake outdated flagged (1.7.2 < 1.11.2)", st.update_available is True)
+        check("handbrake NOT flagged outdated when release has no Linux build",
+              st.update_available is False)
+        check("handbrake note explains the missing Linux build",
+              "no Linux" in st.note and "1.7.2" in st.note)
+
+        # Same release, but imagine it ships a real Linux CLI asset:
+        fake[tu.HB_REPO] = {
+            "tag": "1.11.2",
+            "assets": [("HandBrakeCLI-1.11.2-linux-x86_64.tar.xz",
+                        "https://x/HandBrakeCLI-1.11.2-linux-x86_64.tar.xz")],
+        }
+        st = u.status_handbrake()
+        check("handbrake outdated flagged when Linux asset exists",
+              st.update_available is True)
+        fake[tu.HB_REPO] = {"tag": "1.11.2", "assets": []}
     finally:
         tu.ToolUpdater._grab = orig
         tu._ffmpeg_version = orig_ff
@@ -182,6 +197,118 @@ def test_find_nvenc_binary():
         dest = Path(td) / "empty"
         dest.mkdir()
         check("no binary -> None", tu._find_nvenc_binary(dest) is None)
+
+
+def test_find_linux_cli_asset():
+    win = ("HandBrakeCLI-1.11.2-win-x86_64.zip", "https://x/w.zip")
+    dmg = ("HandBrakeCLI-1.11.2.dmg", "https://x/m.dmg")
+    src = ("HandBrake-1.11.2-source.tar.bz2", "https://x/s.tar.bz2")
+    bare_zip = ("HandBrakeCLI-1.11.2.zip", "https://x/hb.zip")
+    linux_tar = ("HandBrakeCLI-1.11.2-linux-x86_64.tar.xz", "https://x/hb.tar.xz")
+    linux_ai = ("HandBrakeCLI-x86_64.AppImage", "https://x/hb.AppImage")
+    linux_zip = ("HandBrakeCLI-1.12-linux.zip", "https://x/hb2.zip")
+    linux_deb = ("handbrakecli_2.0_amd64.deb", "https://x/hb.deb")
+    check("win zip rejected", tu._find_linux_cli_asset([win]) is None)
+    check("dmg rejected", tu._find_linux_cli_asset([dmg]) is None)
+    check("source tarball rejected", tu._find_linux_cli_asset([src]) is None)
+    check("ambiguous bare zip rejected (HandBrake zips are Windows builds)",
+          tu._find_linux_cli_asset([bare_zip]) is None)
+    check("linux tar.xz accepted", tu._find_linux_cli_asset([linux_tar]) == linux_tar)
+    check("appimage accepted", tu._find_linux_cli_asset([linux_ai]) == linux_ai)
+    check("linux zip accepted", tu._find_linux_cli_asset([linux_zip]) == linux_zip)
+    check("deb accepted", tu._find_linux_cli_asset([linux_deb]) == linux_deb)
+    check("no candidate -> None", tu._find_linux_cli_asset([win, dmg, src]) is None)
+    check("empty assets -> None", tu._find_linux_cli_asset([]) is None)
+
+
+def test_install_handbrake_no_linux_asset():
+    """The broken flatpak path must never come back: no subprocess, honest msg."""
+    orig_grab = tu.ToolUpdater._grab
+    orig_run = tu.subprocess.run
+
+    def no_sub(*a, **k):
+        raise AssertionError("no subprocess allowed when release has no Linux asset")
+
+    tu.ToolUpdater._grab = lambda self, repo: {"tag": "1.11.2", "assets": []}
+    tu.subprocess.run = no_sub
+    try:
+        errs, msgs = [], []
+        ok = ToolUpdater().update("handbrake",
+                                  progress=lambda p, m: msgs.append((p, m)),
+                                  error_cb=errs.append)
+        check("update returns False when release has no Linux asset", ok is False)
+        check("error explains there is no Linux build",
+              bool(errs) and "no prebuilt Linux HandBrakeCLI" in errs[0])
+        check("error does NOT suggest the dead flatpak command",
+              bool(errs) and "flatpak install" not in errs[0])
+        check("error does NOT mention the non-existent app id",
+              bool(errs) and "fr.handbrake" not in errs[0])
+        check("progress reports the reason too",
+              bool(msgs) and msgs[-1][0] == 0 and "No Linux" in msgs[-1][1])
+    finally:
+        tu.ToolUpdater._grab = orig_grab
+        tu.subprocess.run = orig_run
+
+
+def test_install_handbrake_from_linux_asset():
+    """End-to-end: a future Linux release asset downloads, extracts, symlinks."""
+    import zipfile
+    for kind in ("tar.xz", "zip"):
+        with tempfile.TemporaryDirectory() as td:
+            td = Path(td)
+            pkg_dir = td / "build" / "HandBrakeCLI-1.11.2"
+            pkg_dir.mkdir(parents=True)
+            binary = pkg_dir / "HandBrakeCLI"
+            binary.write_text("#!/bin/sh\necho HandBrake 1.11.2\n")
+            binary.chmod(0o644)  # installer must set the exec bit itself
+            if kind == "tar.xz":
+                name = "HandBrakeCLI-1.11.2-linux-x86_64.tar.xz"
+                pkg = td / name
+                with tarfile.open(pkg, "w:xz") as tar:
+                    tar.add(pkg_dir, arcname="HandBrakeCLI-1.11.2")
+            else:
+                name = "HandBrakeCLI-1.11.2-linux-x86_64.zip"
+                pkg = td / name
+                with zipfile.ZipFile(pkg, "w") as zf:
+                    zf.write(binary, arcname="HandBrakeCLI-1.11.2/HandBrakeCLI")
+
+            tools_root = td / "tools"
+            bin_dir = tools_root / "bin"
+            bin_dir.mkdir(parents=True)
+            # an old version dir that cleanup should remove
+            (tools_root / "handbrake-1.7.0").mkdir()
+
+            def fake_grab(self, repo):
+                return {"tag": "1.11.2", "assets": [(name, f"https://x/{name}")]}
+
+            def fake_download(url, dest, progress=None, error_cb=None):
+                dest.write_bytes(pkg.read_bytes())
+                return True
+
+            orig = (tu.ToolUpdater._grab, tu._download,
+                    tu.TOOLS_ROOT, tu.BIN_DIR)
+            tu.ToolUpdater._grab = fake_grab
+            tu._download = fake_download
+            tu.TOOLS_ROOT = tools_root
+            tu.BIN_DIR = bin_dir
+            try:
+                seen = []
+                ok = ToolUpdater().update(
+                    "handbrake", progress=lambda p, m: seen.append(p))
+                check(f"[{kind}] update succeeds from Linux asset", ok is True)
+                link = bin_dir / "HandBrakeCLI"
+                check(f"[{kind}] HandBrakeCLI symlinked into bin dir",
+                      link.is_symlink())
+                check(f"[{kind}] symlink target exists", link.resolve().exists())
+                check(f"[{kind}] binary is executable", os.access(link, os.X_OK))
+                check(f"[{kind}] progress reached 100%", 100 in seen)
+                leftovers = [p.name for p in tools_root.iterdir()
+                             if p.name.startswith("handbrake-")
+                             and p.name != "handbrake-1.11.2"]
+                check(f"[{kind}] old version dirs cleaned up", not leftovers)
+            finally:
+                (tu.ToolUpdater._grab, tu._download,
+                 tu.TOOLS_ROOT, tu.BIN_DIR) = orig
 
 
 def test_install_concurrency_guard():
@@ -334,6 +461,9 @@ def main():
     test_dialog_rendering()
     test_nvencc_version_parse()
     test_find_nvenc_binary()
+    test_find_linux_cli_asset()
+    test_install_handbrake_no_linux_asset()
+    test_install_handbrake_from_linux_asset()
     test_install_concurrency_guard()
     test_download_error_cb()
     test_logger_is_vconv_child()

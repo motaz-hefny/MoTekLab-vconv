@@ -9,7 +9,6 @@ import logging
 logger = logging.getLogger(__name__)
 
 FLATPAK_APP_ID = "fr.handbrake.ghb"
-FLATPAK_CLI_HELPER = "fr.handbrake.HandBrakeCLI"
 
 
 class HandBrakeManager:

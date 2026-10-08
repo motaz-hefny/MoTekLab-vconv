@@ -34,6 +34,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **HandBrakeCLI "Update" failed every time** (`utils/tool_updater.py`): the Tools & Encoders dialog offered an update (1.7.2 → 1.11.2) that could never succeed — HandBrake ships **no prebuilt Linux CLI** (GitHub releases: Windows/macOS binaries, source, and a GUI-only Flatpak; the app id `fr.handbrake.HandBrakeCLI` does not exist on Flathub), and the bare `flatpak install flathub …` also failed with "No remote chosen to resolve 'flathub'" (configured for both system and user). The dialog now only offers the update when a release actually contains a Linux HandBrakeCLI asset (`_find_linux_cli_asset`); otherwise it explains that the installed version is the newest prebuilt CLI. The installer downloads/symlinks a real Linux asset if one ever appears. Dead `FLATPAK_CLI_HELPER` constant removed from `core/handbrake_manager.py`.
+
 ## [9.7.0] - 2026-10-08
 
 ### Added
