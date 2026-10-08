@@ -25,7 +25,7 @@
 - Create: `tests/test_layout_dynamic.py`
 - Modify: `ui/main_window.py` (import block line 18–30, `_create_central_widget` lines 1108–1129, `_create_left_panel` line 1338)
 
-- [ ] **Step 1: Write the failing test file (test 1 only)**
+- [x] **Step 1: Write the failing test file (test 1 only)**
 
 Create `tests/test_layout_dynamic.py`:
 
@@ -123,12 +123,12 @@ if __name__ == "__main__":
     sys.exit(main())
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `QT_QPA_PLATFORM=offscreen python3 tests/test_layout_dynamic.py`
 Expected: `[FAIL] left panel wrapped in QScrollArea` (exit 1 — `settings_scroll` doesn't exist yet).
 
-- [ ] **Step 3: Add the `QScrollArea` import**
+- [x] **Step 3: Add the `QScrollArea` import**
 
 In `ui/main_window.py` (import block, ~line 25), change:
 
@@ -142,7 +142,7 @@ to:
     QListWidget, QListWidgetItem, QTextEdit, QTabWidget, QScrollArea,
 ```
 
-- [ ] **Step 4: Wrap the left panel in `_create_central_widget`**
+- [x] **Step 4: Wrap the left panel in `_create_central_widget`**
 
 In `ui/main_window.py`, replace the body of `_create_central_widget` (currently lines 1108–1129: `main_layout` … `splitter.setStretchFactor(1, 1)`) with:
 
@@ -184,7 +184,7 @@ In `ui/main_window.py`, replace the body of `_create_central_widget` (currently 
 
 (This removes the old `left_panel.setMinimumWidth(0)` / `left_panel.setSizePolicy(...)` lines — their role moves to `settings_scroll`.)
 
-- [ ] **Step 5: Expose `sub_group` for the test**
+- [x] **Step 5: Expose `sub_group` for the test**
 
 In `_create_left_panel` (line 1338), change:
 
@@ -201,12 +201,12 @@ to:
         sub_layout = QVBoxLayout(sub_group)
 ```
 
-- [ ] **Step 6: Run the test to verify it passes**
+- [x] **Step 6: Run the test to verify it passes**
 
 Run: `QT_QPA_PLATFORM=offscreen python3 tests/test_layout_dynamic.py`
 Expected: `[PASS] left panel wrapped in QScrollArea` + `[PASS] Subtitles box keeps natural height …` + `RESULT: ALL PASS (2 checks)`
 
-- [ ] **Step 7: Commit fix 1 (independent revert unit)**
+- [x] **Step 7: Commit fix 1 (independent revert unit)**
 
 ```bash
 git add ui/main_window.py tests/test_layout_dynamic.py
@@ -221,7 +221,7 @@ git commit -m "fix(ui): scrollable settings panel (Subtitles no longer squashes)
 - Modify: `tests/test_layout_dynamic.py` (append test 2)
 - Modify: `ui/main_window.py` (`_create_right_panel` lines 1431–1561)
 
-- [ ] **Step 1: Append the failing test**
+- [x] **Step 1: Append the failing test**
 
 Append to `tests/test_layout_dynamic.py` (before `main()`), and add `test_log_splitter_drives_log_height()` to the `main()` body after the first test:
 
@@ -258,12 +258,12 @@ def main():
     return 0
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `QT_QPA_PLATFORM=offscreen python3 tests/test_layout_dynamic.py`
 Expected: `[FAIL] vertical 2-child log splitter exists` (exit 1 — `log_splitter` doesn't exist yet; test 1 still passes).
 
-- [ ] **Step 3: Restructure the right panel**
+- [x] **Step 3: Restructure the right panel**
 
 In `ui/main_window.py` `_create_right_panel` (lines 1431–1561), make exactly these edits:
 
@@ -336,12 +336,12 @@ with:
 
 This deletes the old `self.log_text.setMaximumHeight(100)` line (replaced by `setMinimumHeight(60)`).
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [x] **Step 4: Run the test to verify it passes**
 
 Run: `QT_QPA_PLATFORM=offscreen python3 tests/test_layout_dynamic.py`
 Expected: `RESULT: ALL PASS (5 checks)`.
 
-- [ ] **Step 5: Commit fix 2 (independent revert unit)**
+- [x] **Step 5: Commit fix 2 (independent revert unit)**
 
 ```bash
 git add ui/main_window.py tests/test_layout_dynamic.py
@@ -352,7 +352,7 @@ git commit -m "fix(ui): draggable Activity Log (remove 100px cap)"
 
 ### Task 3: Full regression
 
-- [ ] **Step 1: Run the entire suite**
+- [x] **Step 1: Run the entire suite**
 
 Run:
 ```bash
@@ -361,7 +361,7 @@ for f in tests/test_*.py; do echo "--- $f"; QT_QPA_PLATFORM=offscreen timeout 12
 Expected: 9 files, all `ALL PASS`, totals
 `23+6+36+14+16+5+12+85+8 = 215 checks`, **zero** `[FAIL]`.
 
-- [ ] **Step 2: Syntax check**
+- [x] **Step 2: Syntax check**
 
 Run: `python3 -m py_compile ui/main_window.py tests/test_layout_dynamic.py`
 Expected: silent success.
@@ -377,7 +377,7 @@ Expected: silent success.
 - Modify: `AGENTS.md` (## Responsive Window Sizing section, end)
 - Create: `docs/test-results/2026-10-08-dynamic-layout.md`
 
-- [ ] **Step 1: CHANGELOG `[Unreleased]` entry**
+- [x] **Step 1: CHANGELOG `[Unreleased]` entry**
 
 Insert directly after the `adheres to [Semantic Versioning]…` line in `CHANGELOG.md`:
 
@@ -389,11 +389,11 @@ Insert directly after the `adheres to [Semantic Versioning]…` line in `CHANGEL
 - **Activity Log cramped at 100 px** (`ui/main_window.py`): removed the hard `setMaximumHeight(100)`; Files/Queue/Progress and the Activity Log now sit in a vertical `QSplitter` (`self.log_splitter`, non-collapsible, default ≈200 px) — drag the separator to give the log any height.
 ```
 
-- [ ] **Step 2: In-app help (What's This) — already added in Task 2 Step 3(c)**
+- [x] **Step 2: In-app help (What's This) — already added in Task 2 Step 3(c)**
 
 Verify only: `grep -n "Drag the separator above this panel" ui/main_window.py` → 1 match (on `log_group.setWhatsThis`).
 
-- [ ] **Step 3: English user guide**
+- [x] **Step 3: English user guide**
 
 In `docs/user_guide.md`, under the `### Logs` heading (line 881 — the paragraph starting `Location: ~/.config/vconv/logs/vconv.log`), append after that section's bullet list (before the `---` that precedes `## Command Line Interface`):
 
@@ -403,7 +403,7 @@ showing live encoding messages. Drag the separator above it to resize — it
 starts about 200 px tall and has no fixed limit.
 ```
 
-- [ ] **Step 4: Arabic user guide**
+- [x] **Step 4: Arabic user guide**
 
 In `docs/user_guide.ar.md`, under `### سجلات التشغيل` (line 584), after its bullet list (`- تغييرات الإعدادات`), append:
 
@@ -412,7 +412,7 @@ In `docs/user_guide.ar.md`, under `### سجلات التشغيل` (line 584), af
 تحتوي النافذة الرئيسية أيضًا على لوحة **سجل النشاط** (أسفل اليمين) تعرض رسائل الترميز الفورية. اسحب الفاصل فوقها لتعديل الحجم؛ يبدأ بارتفاع حوالي 200 بكسل ولا يوجد حد أقصى له.
 ```
 
-- [ ] **Step 5: AGENTS.md rule (so future agents don't undo it)**
+- [x] **Step 5: AGENTS.md rule (so future agents don't undo it)**
 
 At the end of the `## Responsive Window Sizing (v9.7.2)` section in `AGENTS.md` (before `## Encoder Capability Engine`), append:
 
@@ -421,7 +421,7 @@ At the end of the `## Responsive Window Sizing (v9.7.2)` section in `AGENTS.md` 
 - **Activity Log has no height cap**: `log_group` sits in `self.log_splitter` (vertical, `setChildrenCollapsible(False)`, default ≈200 px, stretch only to the upper sections). Do not re-add `setMaximumHeight` on `self.log_text`.
 ```
 
-- [ ] **Step 6: Test-results / reversibility log**
+- [x] **Step 6: Test-results / reversibility log**
 
 Create `docs/test-results/2026-10-08-dynamic-layout.md` with (fill SHAs from Steps in Tasks 1–2 — read them via `git log --oneline -3`):
 
@@ -461,7 +461,7 @@ AGENTS.md (Responsive Window Sizing rules); in-app WhatsThis on Activity Log.
 
 *(Replace `<TASK1_SHA>`/`<TASK2_SHA>` with the real hashes from `git log --oneline -4`.)*
 
-- [ ] **Step 7: Commit docs**
+- [x] **Step 7: Commit docs**
 
 ```bash
 git add CHANGELOG.md docs/user_guide.md docs/user_guide.ar.md AGENTS.md docs/test-results/2026-10-08-dynamic-layout.md
@@ -472,10 +472,10 @@ git commit -m "docs: changelog + user guides + AGENTS rules for dynamic layout f
 
 ### Task 5: Acceptance handoff (no release yet)
 
-- [ ] **Step 1: Stop the visual companion server**
+- [x] **Step 1: Stop the visual companion server**
 
 Run: `/home/motaz/.cache/opencode/packages/superpowers@git+https:/github.com/obra/superpowers.git/node_modules/superpowers/skills/brainstorming/scripts/stop-server.sh /home/motaz/WebProjects/Video_Convert/.superpowers/brainstorm/80749-1791454498`
 
-- [ ] **Step 2: Present results to the user for acceptance testing**
+- [x] **Step 2: Present results to the user for acceptance testing**
 
 Tell the user: both fixes are committed with tests (215 green), docs updated, and ask them to run the app (`QT_QPA_PLATFORM` not needed — real session), verify (a) Subtitles box full height at any window size / resize small, (b) drag the log separator taller/shorter, (c) WhatsThis help on the Activity Log (What's This → click the log panel). **No release is cut until they approve** (spec rule). If they dislike the scroll panel → revisit tabs (option C) per spec fallback.
