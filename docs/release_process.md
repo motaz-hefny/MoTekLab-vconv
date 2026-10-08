@@ -143,6 +143,20 @@ After uploads, verify at: https://github.com/motaz-hefny/MoTekLab-vconv/releases
 
 ---
 
+## Practical build notes (2026-10-08, v9.7.1/v9.7.2)
+
+- **Pillow not assumed**: the deb build only needs `dpkg-deb`; the AppImage needs a bundled PyQt6 build (`pyinstaller --onefile`; always use **absolute** `--add-data "/abs/path/core:core"` — relative paths resolve against `--specpath` and fail with "Unable to find …").
+- **appimagetool is not installed on this machine.** Two working local paths:
+  - `~/.cache/tauri/linuxdeploy-x86_64.AppImage` (+ `linuxdeploy-plugin-appimage.AppImage` beside it) → `ARCH=x86_64 LDAI_OUTPUT="dist/vconv-X.Y.Z-x86_64.AppImage" <linuxdeploy> --appdir <AppDir> --output appimage`
+  - or download the official `appimagetool-x86_64.AppImage` from the AppImage/AppImageKit releases and run it with `--appimage-extract-and-run`. (The electron-builder cache at `~/.cache/electron-builder/appimage-12.0.1/` contains only runtime binaries, NOT the CLI.)
+- **Publish order gotcha**: the app caches the check result in `~/.config/vconv/update_cache.json` for **24 h**. If a check ran before the new tag was pushed, detection of the new version is delayed until the cache expires — delete that file before verifying "update available".
+- **GH API pushes**: plain `git push` fails on this box's HTTPS remote; use the transient helper:
+  `git -c credential.helper='!f() { echo "username=oauth2"; echo "password=$(gh auth token)"; }; f' push origin …`
+- **Multi-version start menu**: after installing a new deb, the user-scope launcher may still point at an old dev checkout. Regenerate with the installed-aware path: `cp utils/xdg_integration.py /opt/vconv/utils/ && python3 -c "import sys; sys.path.insert(0,'/home/motaz/WebProjects/Video_Convert'); from pathlib import Path; from utils.xdg_integration import ensure_xdg_integration; ensure_xdg_integration(Path('/opt/vconv'))"`.
+- Version bump lives in `utils/version.py`; release branches are built in **worktrees** (`git worktree add /tmp/vconv-XYZ HEAD`), so the dev checkout keeps the old version number for update testing. After the user accepts the update test, fast-forward `main` to the release tag commit.
+
+---
+
 ## Artifact Summary
 
 All builds go into the **`dist/`** folder in the project root.
