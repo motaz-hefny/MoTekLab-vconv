@@ -23,7 +23,7 @@ from PyQt6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
     QStatusBar, QToolBar, QMenu, QFrame, QSizePolicy,
     QLineEdit, QDialog, QFormLayout, QInputDialog,
-    QListWidget, QListWidgetItem, QTextEdit, QTabWidget,
+    QListWidget, QListWidgetItem, QTextEdit, QTabWidget, QScrollArea,
     QWhatsThis, QGridLayout, QProgressDialog
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSize, QUrl, QTimer
@@ -1119,10 +1119,21 @@ class MainWindow(QMainWindow):
         left_panel = self._create_left_panel()
         right_panel = self._create_right_panel()
 
-        left_panel.setMinimumWidth(0)
-        left_panel.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding)
+        # The left panel is taller than small windows; without a scroll area
+        # Qt compresses the last boxes (Subtitles squashed — 2026-10-08).
+        # Size hints live on the scroll area so the horizontal splitter
+        # drags exactly as before (300/950, stretch 0/1).
+        self.settings_scroll = QScrollArea()
+        self.settings_scroll.setWidget(left_panel)
+        self.settings_scroll.setWidgetResizable(True)
+        self.settings_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.settings_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.settings_scroll.setMinimumWidth(0)
+        self.settings_scroll.setSizePolicy(
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding)
 
-        splitter.addWidget(left_panel)
+        splitter.addWidget(self.settings_scroll)
         splitter.addWidget(right_panel)
         splitter.setSizes([300, 950])
         splitter.setStretchFactor(0, 0)
@@ -1336,6 +1347,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(audio_group)
 
         sub_group = QGroupBox("Subtitles")
+        self.sub_group = sub_group  # exposed for tests/test_layout_dynamic.py
         sub_layout = QVBoxLayout(sub_group)
         sub_layout.setSpacing(6)
 
