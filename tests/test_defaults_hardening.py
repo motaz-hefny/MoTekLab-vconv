@@ -209,6 +209,58 @@ def test_default_videos_dir():
               mw.default_videos_dir(home) == home / "Videos")
 
 
+def test_custom_output_folder_seed():
+    with tempfile.TemporaryDirectory() as d:
+        cfg = Config(str(Path(d) / "vconv.conf"))
+        cfg.load()
+        with mock.patch.object(mw, "default_videos_dir",
+                               return_value=Path("/home/u/Videos")):
+            win = make_window(cfg)
+        check("fresh config seeds XDG Videos folder",
+              win.output_dir_edit.text() == "/home/u/Videos")
+        check("radio stays on Same-as-source (fresh)",
+              win.output_same_radio.isChecked())
+        check("custom field disabled until Custom chosen",
+              not win.output_dir_edit.isEnabled())
+        win.close()
+        del win
+        gc.collect()
+    with tempfile.TemporaryDirectory() as d:
+        cfg = Config(str(Path(d) / "vconv.conf"))
+        cfg.load()
+        cfg.set("defaults", "output_dir", "/mnt/nas/exports")
+        cfg.save()
+        cfg2 = Config(str(Path(d) / "vconv.conf"))
+        cfg2.load()
+        win = make_window(cfg2)
+        check("saved custom path wins over XDG default",
+              win.output_dir_edit.text() == "/mnt/nas/exports")
+        check("radio still Same-as-source (saved path)",
+              win.output_same_radio.isChecked())
+        win.close()
+        del win
+        gc.collect()
+
+
+def test_remember_output_dir_persists():
+    with tempfile.TemporaryDirectory() as d:
+        cfg = Config(str(Path(d) / "vconv.conf"))
+        cfg.load()
+        win = make_window(cfg)
+        win._remember_output_dir("/tmp/newdest")
+        check("custom path persisted to config",
+              str(cfg.get("defaults", "output_dir", "source")) == "/tmp/newdest")
+        win._remember_output_dir("")
+        check("empty path ignored (no overwrite)",
+              str(cfg.get("defaults", "output_dir", "source")) == "/tmp/newdest")
+        win._remember_output_dir("source")
+        check("'source' token ignored",
+              str(cfg.get("defaults", "output_dir", "source")) == "/tmp/newdest")
+        win.close()
+        del win
+        gc.collect()
+
+
 def main():
     app = QApplication.instance() or QApplication([])
     test_x265_default_command_uses_valid_subme()
@@ -219,6 +271,8 @@ def main():
     test_preset_whatsthis_rf_matches_json()
     test_presets_preserve_source_audio()
     test_default_videos_dir()
+    test_custom_output_folder_seed()
+    test_remember_output_dir_persists()
     print(f"\nRESULT: ALL PASS ({PASS} checks)")
     return 0
 

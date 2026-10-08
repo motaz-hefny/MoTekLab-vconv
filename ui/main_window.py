@@ -1319,6 +1319,10 @@ class MainWindow(QMainWindow):
         out_input_layout = QHBoxLayout()
         self.output_dir_edit = QLineEdit()
         self.output_dir_edit.setEnabled(False)
+        seed_out = str(self.output_dir or 'source')
+        if seed_out in ('', 'source'):
+            seed_out = str(default_videos_dir())
+        self.output_dir_edit.setText(seed_out)
         self.output_dir_edit.setPlaceholderText("Select custom output folder...")
         out_input_layout.addWidget(self.output_dir_edit)
         browse_btn = QPushButton("📁")
@@ -2013,11 +2017,21 @@ class MainWindow(QMainWindow):
         except Exception as e:
             print(f"Preset error: {e}")
 
+    def _remember_output_dir(self, path):
+        """Persist the last custom output folder (''/source ignored)."""
+        path = str(path or '')
+        if not path or path == 'source' or path == str(self.output_dir):
+            return
+        self.output_dir = path
+        self.config.set('defaults', 'output_dir', path)
+        self.config.save()
+
     def _browse_output(self):
         initial = self.last_folder or os.path.expanduser('~')
         folder = QFileDialog.getExistingDirectory(self, "Select Output Folder", initial)
         if folder:
             self.output_dir_edit.setText(folder)
+            self._remember_output_dir(folder)
 
     def _set_default_folder(self):
         initial = self.default_folder or os.path.expanduser('~')
@@ -2107,6 +2121,7 @@ class MainWindow(QMainWindow):
         if self.output_custom_radio.isChecked() and self.output_dir_edit.text():
             output_base = self.output_dir_edit.text()
             preserve_structure = not self.flat_output_check.isChecked()
+            self._remember_output_dir(output_base)
 
         _park(self.worker)
         self.worker = ConversionWorker(self.files, output_base, settings, self.encoder_manager,
