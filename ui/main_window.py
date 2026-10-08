@@ -615,42 +615,62 @@ def default_videos_dir(home=None):
 
 
 class _HugTabWidget(QTabWidget):
-    """Tab widget whose sizeHint() hugs the currently visible page.
+    """Tab widget whose sizeHint() AND minimumSizeHint() hug the current page.
 
-    Qt 6.11's QTabWidget::sizeHint() expands over ALL visible tab pages
-    (qtabwidget.cpp), so a plain instance always reports the widest page and
-    can never shrink with the active tab. The dynamic-width design
+    Qt 6.11's QTabWidget sizeHint()/minimumSizeHint() both expand over ALL
+    visible tab pages (qtabwidget.cpp), so a plain instance always reports the
+    widest/tallest page and can never shrink with the active tab. The
+    dynamic-width design
     (docs/superpowers/specs/2026-10-08-dynamic-settings-width-design.md)
-    needs a per-current-tab hug, so recompute Qt's own formula
-    (style padding + max(current page, tab bar)) instead.
+    needs a per-current-tab hug for the natural hint and the floor, so
+    recompute Qt's own formula (style padding + max(current page, tab bar))
+    for both.
     """
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.currentChanged.connect(self.updateGeometry)
 
-    def sizeHint(self):
-        current = self.currentWidget()
-        if current is None:
-            return super().sizeHint()
-        base = super().sizeHint()
-        widest = tallest = 0
-        for i in range(self.count()):
-            page = self.widget(i)
-            if page is not None and self.isTabVisible(i):
-                hint = page.sizeHint()
-                widest = max(widest, hint.width())
-                tallest = max(tallest, hint.height())
-        tab_bar = self.tabBar().sizeHint()
-        if self.usesScrollButtons():
-            tab_bar = tab_bar.boundedTo(QSize(200, 200))
+    @staticmethod
+    def _hugged(base, cur, widest, tallest, tab_bar):
         pad_w = base.width() - max(widest, tab_bar.width())
         pad_h = base.height() - (tallest + tab_bar.height())
-        cur = current.sizeHint()
         return QSize(
             max(cur.width(), tab_bar.width()) + pad_w,
             cur.height() + tab_bar.height() + pad_h,
         )
+
+    def _page_extrema(self, size_attr):
+        widest = tallest = 0
+        for i in range(self.count()):
+            page = self.widget(i)
+            if page is not None and self.isTabVisible(i):
+                hint = getattr(page, size_attr)()
+                widest = max(widest, hint.width())
+                tallest = max(tallest, hint.height())
+        return widest, tallest
+
+    def sizeHint(self):
+        current = self.currentWidget()
+        if current is None:
+            return super().sizeHint()
+        widest, tallest = self._page_extrema("sizeHint")
+        tab_bar = self.tabBar().sizeHint()
+        if self.usesScrollButtons():
+            tab_bar = tab_bar.boundedTo(QSize(200, 200))
+        return self._hugged(super().sizeHint(), current.sizeHint(),
+                            widest, tallest, tab_bar)
+
+    def minimumSizeHint(self):
+        current = self.currentWidget()
+        if current is None:
+            return super().minimumSizeHint()
+        widest, tallest = self._page_extrema("minimumSizeHint")
+        tab_bar = self.tabBar().minimumSizeHint()
+        if self.usesScrollButtons():
+            tab_bar = tab_bar.boundedTo(QSize(200, 200))
+        return self._hugged(super().minimumSizeHint(), current.minimumSizeHint(),
+                            widest, tallest, tab_bar)
 
 
 class MainWindow(QMainWindow):

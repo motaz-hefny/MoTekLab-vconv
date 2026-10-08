@@ -120,9 +120,12 @@ def test_reflow():
     # Post-reflow floors (font-dependent soft bounds from the spec table).
     check(f"sub_group min < 300 ({win.sub_group.minimumSizeHint().width()})",
           win.sub_group.minimumSizeHint().width() < 300)
+    f_video = floor(win)
     win.settings_tabs.setCurrentIndex(1)
     QApplication.processEvents()
     check(f"audio hug < 200 ({hug(win)})", hug(win) < 200)
+    check(f"audio floor < video floor ({floor(win)} < {f_video})",
+          floor(win) < f_video)
     win.close()
     del win
     gc.collect()
