@@ -5,6 +5,17 @@ All notable changes to the vconv project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [9.7.5] - 2026-10-08
+
+### Fixed
+- **Clicking Refresh in Tools & Encoders killed the whole app** (`ui/main_window.py`): the refresh worker emits its `done` signal from *inside* `run()` — before its OS thread has exited — and the `_refresh_done` slot immediately dropped the last Python reference (`self._refresh_worker = None`). Python destroyed the still-running `QThread`, Qt called `qFatal("QThread: Destroyed while thread is still running")` and `abort()`ed the process (coredump, SIGABRT, 2026-10-08 11:41:08; no log entry — `qFatal` bypasses Python logging). A new `_park()` registry now holds every at-risk worker reference until its thread really exits: `ToolsDialog._refresh_done` joins before dropping, a `ToolsDialog.done()` override parks refresh/install workers on any dialog close path, install workers are joined before `discard`, worker-attribute reassignments (`self.worker`, `self._update_worker`, `self._update_install_worker`) park the old worker first, and `MainWindow.closeEvent` calls `_shutdown_workers()` (`wait(5000)` then park). Also removed the stale "update HandBrake via Flatpak" dialog note/tooltip left over from the 9.7.4 behavior change.
+
+### Added
+- **Regression tests for QThread lifetime**: `tests/test_thread_lifecycle.py` (10 checks) reproduces the pre-fix core dump deterministically (workers emit completion, then linger 0.4 s so the last-reference drop lands while the thread is still running) and verifies join-before-drop plus dialog-close parking; `tests/test_tools_startup_smoke.py` +2 checks for `_shutdown_workers`. Full suite: **210 checks** green (9 files).
+
+### Changed
+- **Version**: 9.7.4 → 9.7.5
+
 ## [9.7.4] - 2026-10-08
 
 ### Fixed

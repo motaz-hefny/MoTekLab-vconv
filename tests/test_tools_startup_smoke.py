@@ -12,6 +12,7 @@ Run:
 import os
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -87,6 +88,25 @@ def main():
     # _ensure_ffmpeg no longer apt-updates; logs only
     win._ensure_ffmpeg()
     check("_ensure_ffmpeg returns (no crash)", True)
+
+    # _shutdown_workers (closeEvent) must join still-running owned threads —
+    # freeing a running QThread makes Qt abort the app (2026-10-08 crash).
+    class _LingeringThread(QThread):
+        def run(self):
+            time.sleep(0.4)
+
+    lw = _LingeringThread()
+    win.worker = lw
+    lw.start()
+    win._shutdown_workers()
+    check("_shutdown_workers joins running threads", not lw.isRunning())
+
+    win.worker = None
+    win._tools_worker = None
+    win._update_worker = None
+    win._update_install_worker = None
+    win._shutdown_workers()
+    check("_shutdown_workers tolerates None workers", True)
 
     tmp.cleanup()
 

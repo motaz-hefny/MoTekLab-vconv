@@ -86,6 +86,35 @@ def _asset_path(filename: str) -> Path:
     return p  # Return best guess even if not found
 
 
+# --------------------------------------------------------------------------- #
+# QThread lifetime safety
+# --------------------------------------------------------------------------- #
+# Deleting a QThread whose OS thread has not exited yet makes Qt call
+# qFatal("QThread: Destroyed while thread is still running") and abort() the
+# whole application (real crash: coredump 2026-10-08 11:41:08, SIGABRT,
+# ToolsDialog refresh).  Anywhere a worker reference is about to be dropped or
+# overwritten, hand it to _park() (or join it with wait()) FIRST.
+_ZOMBIE_THREADS: list = []
+
+
+def _retire_parked(worker):
+    """Join a parked QThread, then release the registry's reference (idempotent)."""
+    if worker not in _ZOMBIE_THREADS:
+        return
+    worker.wait()
+    _ZOMBIE_THREADS.remove(worker)
+
+
+def _park(worker):
+    """Hold a QThread reference until its OS thread has really exited."""
+    if worker is None:
+        return
+    _ZOMBIE_THREADS.append(worker)
+    worker.finished.connect(lambda w=worker: _retire_parked(w))
+    if worker.isFinished():
+        _retire_parked(worker)
+
+
 class ConversionWorker(QThread):
     """Worker thread for file conversion with proper Qt threading."""
     progress = pyqtSignal(object)
@@ -323,8 +352,8 @@ class ToolsDialog(QDialog):
         note = QLabel(
             "Encoding tools are kept at the latest official version. ffmpeg and "
             "NVEncC are downloaded to your user folder (no root needed). "
-            "HandBrakeCLI has no official Linux binary; update it via Flatpak "
-            "or your package manager.")
+            "HandBrakeCLI ships no Linux update builds — your installed "
+            "version is the newest available prebuilt CLI.")
         note.setWordWrap(True)
         layout.addWidget(note)
 
@@ -338,7 +367,7 @@ class ToolsDialog(QDialog):
         self.auto_check.setChecked(self.config.get('general', 'auto_update_tools', True))
         self.auto_check.setToolTip(
             "On startup, ffmpeg and NVEncC updates are downloaded automatically. "
-            "HandBrakeCLI is only updated when you press its button.")
+            "HandBrakeCLI has no upstream Linux builds to download.")
         layout.addWidget(self.auto_check)
 
         self.auto_check.toggled.connect(self._save_auto_setting)
@@ -397,7 +426,29 @@ class ToolsDialog(QDialog):
         row["button"].setEnabled(st.update_available)
 
     def _refresh_done(self):
+        w = self._refresh_worker
         self._refresh_worker = None
+        if w is not None:
+            # `done` is emitted inside run(), i.e. BEFORE the OS thread has
+            # exited — join it while we still hold `w`, otherwise deleting the
+            # running QThread makes Qt abort the whole app.
+            w.wait()
+
+    def done(self, r):
+        # Closing the dialog must not free workers that are still running
+        # (their only other reference is this dialog's attributes).
+        w = self._refresh_worker
+        if w is not None:
+            self._refresh_worker = None
+            _park(w)
+        for iw in list(self._install_workers):
+            self._install_workers.discard(iw)
+            _park(iw)
+        super().done(r)
+
+    def _retire_install_worker(self, worker):
+        worker.wait()
+        self._install_workers.discard(worker)
 
     def _save_auto_setting(self, checked):
         self.config.set('general', 'auto_update_tools', checked)
@@ -412,7 +463,7 @@ class ToolsDialog(QDialog):
         worker = ToolInstallWorker(tool_id)
         worker.progress.connect(lambda pct, _ph: row["bar"].setValue(int(pct)))
         worker.result.connect(lambda st, ok, msg: self._on_install_result(st, ok, msg))
-        worker.finished.connect(lambda: self._install_workers.discard(worker))
+        worker.finished.connect(lambda w=worker: self._retire_install_worker(w))
         self._install_workers.add(worker)
         worker.start()
 
@@ -560,6 +611,8 @@ class MainWindow(QMainWindow):
         self.is_converting = False
         self.worker = None
         self._update_worker = None
+        self._tools_worker = None
+        self._update_install_worker = None
 
         self.quality = self.config.get('defaults', 'quality', 27)
         self.encoder = self.config.get('defaults', 'encoder', 'auto')
@@ -1549,7 +1602,17 @@ class MainWindow(QMainWindow):
         if self.is_converting:
             self._cancel_conversion()
             threading.Event().wait(0.5)
+        self._shutdown_workers()
         event.accept()
+
+    def _shutdown_workers(self):
+        """Join owned QThreads before the window (their last reference) dies."""
+        for w in (self.worker, self._tools_worker, self._update_worker,
+                  self._update_install_worker):
+            if w is None:
+                continue
+            if not w.wait(5000):
+                _park(w)
 
     def _on_encoder_changed(self, text):
         enc = self.encoder_map.get(text, '')
@@ -1973,6 +2036,7 @@ class MainWindow(QMainWindow):
             output_base = self.output_dir_edit.text()
             preserve_structure = not self.flat_output_check.isChecked()
 
+        _park(self.worker)
         self.worker = ConversionWorker(self.files, output_base, settings, self.encoder_manager,
                                        source_root=self.source_root if preserve_structure else None,
                                        file_subtitles=self.file_subtitles,
@@ -2362,12 +2426,14 @@ class MainWindow(QMainWindow):
         enabled = self.config.get('general', 'check_updates', True)
         if not enabled:
             return
+        _park(self._update_worker)
         self._update_worker = UpdateCheckWorker(__version__)
         self._update_worker.update_found.connect(self._on_update_check_result)
         self._update_worker.start()
         return
 
     def _check_for_updates_now(self):
+        _park(self._update_worker)
         self._update_worker = UpdateCheckWorker(__version__)
         self._update_worker.update_found.connect(self._on_update_check_result)
         self.status_label.setText("🔍 Checking for updates...")
@@ -2430,6 +2496,7 @@ class MainWindow(QMainWindow):
         worker.progress.connect(self._update_progress.setValue)
         worker.status.connect(self._update_progress.setLabelText)
         worker.install_finished.connect(self._on_update_install_finished)
+        _park(self._update_install_worker)
         self._update_install_worker = worker
         worker.start()
 
