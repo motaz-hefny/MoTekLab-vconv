@@ -57,8 +57,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - **Version**: 9.7.1 → 9.7.2
 
-## [Unreleased]
-
 ## [9.7.0] - 2026-10-08
 
 ### Added

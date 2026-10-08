@@ -33,10 +33,22 @@
   tool_updater 85, tool_worker 8.
 - Run: `QT_QPA_PLATFORM=offscreen python3 tests/test_layout_dynamic.py`
 
-## Reversibility (each fix is an independent commit; dry-run reverts verified clean)
-- Revert scroll panel:  `git revert --no-edit bab289c`
-- Revert log splitter: `git revert --no-edit fc7e434`
-- (Docs in this commit revert together with either if undesired: `git revert --no-edit HEAD`.)
+## Reversibility (each fix is an independent commit; commands verified by dry-run)
+- Revert **both** fixes (single clean command — use this one):
+  `git revert --no-edit fc7e434 bab289c`
+  Order matters: reverting `bab289c` first or alone conflicts (modify/delete on
+  the test file `bab289c` created). This combined command returns the suite to
+  the 210-check baseline (the test file is deleted).
+- Revert **only** the log splitter: `git revert --no-edit fc7e434` — applies
+  cleanly; note it also reverts checks 3–5 of `tests/test_layout_dynamic.py`
+  (those checks were ADDED by `fc7e434`), so the remaining 2 scroll checks
+  still pass and the suite stays green (212 checks) — the log splitter is
+  then simply untested.
+- Revert **only** the scroll panel: `git revert --no-edit bab289c` — CONFLICTS
+  on the test file; resolve with `git rm tests/test_layout_dynamic.py && git revert --continue`
+  (the log-splitter fix remains, now without its tests).
+- To also drop these docs: `git revert --no-edit HEAD` (docs only; independent
+  of the two fix reverts).
 
 ## Layout probe evidence (Task 1/2 quality reviews)
 - Left panel content ≈ 1128 px tall → the vertical scrollbar will be visible on
