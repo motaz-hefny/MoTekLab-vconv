@@ -40,8 +40,31 @@ from ui.help_browser import HelpBrowser
 from utils.config import Config
 from utils.updater import check_for_updates, UpdateInfo
 from utils.i18n import I18n
+from utils.logging import get_logger
 from utils.version import __version__, APP_NAME, APP_DISPLAY_NAME
 from utils.xdg_integration import ensure_xdg_integration
+
+logger = get_logger("ui.main_window")
+
+
+# Design sizes the window was built for (v9.6.x era) — larger than many
+# 1366x768 / 720p laptops. We scale them down to fit the actual screen.
+_DESIGN_MIN_SIZE = (1100, 700)
+_DESIGN_DEFAULT_SIZE = (1250, 800)
+_FLOOR_MIN_SIZE = (760, 520)
+
+
+def _screen_window_bounds(avail_w: int, avail_h: int) -> tuple:
+    """Return (min_size, default_size) that fit an available screen area.
+
+    Keeps the original design size on big monitors but shrinks gracefully so
+    the window always fits and never forces an oversized default on small ones.
+    """
+    min_w = min(_DESIGN_MIN_SIZE[0], max(_FLOOR_MIN_SIZE[0], avail_w - 120))
+    min_h = min(_DESIGN_MIN_SIZE[1], max(_FLOOR_MIN_SIZE[1], avail_h - 140))
+    def_w = max(min(_DESIGN_DEFAULT_SIZE[0], avail_w - 80), min_w)
+    def_h = max(min(_DESIGN_DEFAULT_SIZE[1], avail_h - 100), min_h)
+    return (min_w, min_h), (def_w, def_h)
 
 
 def _asset_path(filename: str) -> Path:
@@ -240,7 +263,9 @@ class ToolUpdaterWorker(QThread):
                 self.status_ready.emit(st)
                 if (self.auto_update_tools and st.update_available
                         and tid in ("ffmpeg", "nvencc")):
-                    ok = updater.update(tid)
+                    ok = updater.update(
+                        tid,
+                        error_cb=lambda m, t=tid: logger.warning(f"Auto-update {t}: {m}"))
                     if ok:
                         st2 = updater.status(tid)
                         self.status_ready.emit(st2)
@@ -261,12 +286,14 @@ class ToolInstallWorker(QThread):
     def run(self):
         from utils.tool_updater import ToolUpdater
         updater = ToolUpdater()
-        ok = updater.update(self.tool_id, self._progress, None)
+        errors: list[str] = []
+        ok = updater.update(self.tool_id, self._progress, errors.append)
         st = updater.status(self.tool_id)
         if ok:
             msg = f"{st.display} updated to {st.latest_version}"
         else:
-            msg = f"Update of {st.display} failed: {st.note or 'see log'}"
+            detail = errors[-1] if errors else (st.note or "see log")
+            msg = f"Update of {st.display} failed: {detail}"
         self.result.emit(st, ok, msg)
 
     def _progress(self, pct: float, phase: str):
@@ -739,13 +766,18 @@ class MainWindow(QMainWindow):
             icon = QIcon.fromTheme("video-display")
         if not icon.isNull():
             self.setWindowIcon(icon)
-        self.setMinimumSize(1100, 700)
-        self.resize(1250, 800)
+        self._apply_screen_sizing()
 
         self._create_menu_bar()
         self._create_toolbar()
         self._create_central_widget()
         self._create_status_bar()
+
+    def _apply_screen_sizing(self):
+        """Set a minimum window size that always fits the current screen."""
+        scr = QApplication.primaryScreen().availableGeometry()
+        min_size, _ = _screen_window_bounds(scr.width(), scr.height())
+        self.setMinimumSize(min_size[0], min_size[1])
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
@@ -1485,14 +1517,24 @@ class MainWindow(QMainWindow):
         self.status_bar.showMessage(f"{APP_NAME} v{__version__} | {hw} | Files: {len(self.files)} | Queue: {len(self.queue_manager.jobs)} | Quality: RF {self.quality}")
 
     def _load_window_geometry(self):
+        """Restore window geometry, clamped so it always fits the screen."""
+        scr = QApplication.primaryScreen().availableGeometry()
+        min_size, def_size = _screen_window_bounds(scr.width(), scr.height())
         x = self.config.get('ui', 'window_x')
         y = self.config.get('ui', 'window_y')
-        w = self.config.get('ui', 'window_width', 1250)
-        h = self.config.get('ui', 'window_height', 800)
+        w = int(self.config.get('ui', 'window_width', def_size[0]))
+        h = int(self.config.get('ui', 'window_height', def_size[1]))
+        w = max(min_size[0], min(w, max(min_size[0], scr.width() - 40)))
+        h = max(min_size[1], min(h, max(min_size[1], scr.height() - 60)))
         if x is not None and y is not None:
-            self.setGeometry(int(x), int(y), int(w), int(h))
+            self.setGeometry(int(x), int(y), w, h)
         else:
-            self.resize(int(w), int(h))
+            self.resize(w, h)
+        # Never leave the window off-screen (e.g. a monitor was unplugged).
+        frame = self.frameGeometry()
+        if not scr.intersects(frame) and scr.width() > 0:
+            self.move(scr.center().x() - self.width() // 2,
+                      scr.center().y() - self.height() // 2)
 
     def closeEvent(self, event):
         self.config.set('ui', 'window_x', self.geometry().x())
@@ -2525,6 +2567,13 @@ def launch(config: Config, i18n: I18n, args=None, encoder_manager=None):
         app_icon = QIcon.fromTheme("video-display")
     if not app_icon.isNull():
         app.setWindowIcon(app_icon)
+
+    # Large/4K monitors: bump the base font one step so text stays readable.
+    scr_font = app.primaryScreen().availableGeometry()
+    base_font = app.font()
+    if base_font.pointSize() > 0 and (scr_font.width() >= 1920 or scr_font.height() >= 1080):
+        base_font.setPointSize(base_font.pointSize() + 1)
+        app.setFont(base_font)
 
     window = MainWindow(config, i18n, args, encoder_manager)
     window.show()

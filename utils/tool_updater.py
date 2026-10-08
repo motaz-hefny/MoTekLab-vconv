@@ -20,6 +20,7 @@ import logging
 import shutil
 import tarfile
 import subprocess
+import threading
 import urllib.request
 import urllib.error
 import tempfile
@@ -30,7 +31,7 @@ from typing import Callable, Optional
 from utils.updater import parse_version
 from utils.version import __version__
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("vconv." + __name__)
 
 TOOLS_ROOT = Path.home() / ".local" / "share" / "vconv" / "tools"
 BIN_DIR = TOOLS_ROOT / "bin"
@@ -43,6 +44,26 @@ HB_REPO = "HandBrake/HandBrake"
 
 FFMPEG_ASSET_RE = re.compile(r"ffmpeg-n([\d.]+)-latest-linux64-gpl(?:-[\d.]+)?.tar.xz$")
 NVENC_ASSET_RE = re.compile(r"nvencc_([\d.]+)_amd64\.deb$")
+# Real NVEncC banner: "NVEnc (x64) 9.38 (r4176) by rigaya, ..."
+_NVENC_VER_RE = re.compile(r"NVEnc\s*\(x(?:64|86)\)\s*([^\s]+)")
+
+# Guard against two threads installing the SAME tool concurrently (e.g. the
+# startup auto-update racing a manual "Update" click in the Tools dialog).
+INSTALL_ACTIVE: set[str] = set()
+INSTALL_LOCK = threading.Lock()
+
+
+def _reserve_install(tool_id: str) -> bool:
+    with INSTALL_LOCK:
+        if tool_id in INSTALL_ACTIVE:
+            return False
+        INSTALL_ACTIVE.add(tool_id)
+        return True
+
+
+def _release_install(tool_id: str) -> None:
+    with INSTALL_LOCK:
+        INSTALL_ACTIVE.discard(tool_id)
 
 
 @dataclass
@@ -92,11 +113,11 @@ def _ffmpeg_version() -> str:
 
 
 def _nvenc_version() -> str:
-    exe = _which("NVEncC") or _which("NVEncC64")
+    exe = _which("NVEncC") or _which("NVEncC64") or _which("nvencc") or _which("nvencc64")
     if not exe:
         return ""
     out = _run([exe, "--version"], timeout=15)
-    m = re.search(r"NVEncC\s+([^\s]+)", out)
+    m = _NVENC_VER_RE.search(out)
     return m.group(1) if m else ""
 
 
@@ -131,7 +152,9 @@ def _find_asset(assets: list, pattern: re.Pattern) -> Optional[tuple]:
     return None
 
 
-def _download(url: str, dest: Path, progress: Optional[Callable[[float, str], None]] = None) -> bool:
+def _download(url: str, dest: Path,
+              progress: Optional[Callable[[float, str], None]] = None,
+              error_cb: Optional[Callable[[str], None]] = None) -> bool:
     """Download a file with optional progress callback (throttled to 1% steps)."""
     try:
         req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
@@ -153,7 +176,10 @@ def _download(url: str, dest: Path, progress: Optional[Callable[[float, str], No
                             progress(float(pct), "")
         return True
     except Exception as e:
+        msg = f"Download failed: {e}"
         logger.error(f"Download failed {url}: {e}")
+        if error_cb:
+            error_cb(msg)
         try:
             dest.unlink(missing_ok=True)
         except Exception:
@@ -235,7 +261,8 @@ class ToolUpdater:
         st.installed_version = _nvenc_version()
         rel = self._grab(NVENC_REPO)
         st.latest_version = _clean_version(rel.get("tag", ""))
-        st.installed_path = _which("NVEncC") or _which("NVEncC64") or ""
+        st.installed_path = (_which("NVEncC") or _which("NVEncC64") or
+                             _which("nvencc") or _which("nvencc64") or "")
         if st.installed_version and st.latest_version:
             st.update_available = _parse_version_str(st.installed_version) < \
                                   _parse_version_str(st.latest_version)
@@ -266,26 +293,37 @@ class ToolUpdater:
                progress: Optional[Callable[[float, str], None]] = None,
                error_cb: Optional[Callable[[str], None]] = None) -> bool:
         """Install/update a tool. Returns True on success."""
+        if not _reserve_install(tool_id):
+            msg = "Another update for this tool is already running (startup auto-update?)"
+            logger.warning(f"update({tool_id}) refused — already active")
+            if error_cb:
+                error_cb(msg)
+            return False
         try:
             if tool_id == "ffmpeg":
-                return self._install_ffmpeg(progress)
+                return self._install_ffmpeg(progress, error_cb)
             if tool_id == "nvencc":
-                return self._install_nvencc(progress)
+                return self._install_nvencc(progress, error_cb)
             if tool_id == "handbrake":
-                return self._install_handbrake(progress)
+                return self._install_handbrake(progress, error_cb)
         except Exception as e:
             logger.exception(f"Tool update failed for {tool_id}")
             if error_cb:
                 error_cb(str(e))
             return False
+        finally:
+            _release_install(tool_id)
         return False
 
-    def _install_ffmpeg(self, progress=None) -> bool:
+    def _install_ffmpeg(self, progress=None, error_cb=None) -> bool:
         rel = self._grab(FFMPEG_REPO)
         asset = _find_asset(rel.get("assets", []), FFMPEG_ASSET_RE)
         if not asset:
+            msg = "No ffmpeg build found on GitHub releases"
             if progress:
-                progress(0, "No ffmpeg build found on GitHub")
+                progress(0, msg)
+            if error_cb:
+                error_cb(msg)
             return False
         name, url = asset
         ver = _clean_version(name.split("-")[1] if "-" in name else name)
@@ -293,7 +331,7 @@ class ToolUpdater:
             progress(5, f"Downloading ffmpeg {ver}…")
         with tempfile.TemporaryDirectory(prefix="vconv_ffmpeg_") as td:
             tarball = Path(td) / name
-            if not _download(url, tarball, progress):
+            if not _download(url, tarball, progress, error_cb):
                 return False
             if progress:
                 progress(55, "Extracting…")
@@ -301,6 +339,8 @@ class ToolUpdater:
             dest.mkdir(parents=True, exist_ok=True)
             ok = _extract_strip(tarball, dest, strip=1)
             if not ok:
+                if error_cb:
+                    error_cb(f"Failed to extract {name}")
                 return False
             for exe in ("ffmpeg", "ffprobe"):
                 src = dest / exe
@@ -316,12 +356,15 @@ class ToolUpdater:
             progress(100, f"ffmpeg {ver} installed")
         return True
 
-    def _install_nvencc(self, progress=None) -> bool:
+    def _install_nvencc(self, progress=None, error_cb=None) -> bool:
         rel = self._grab(NVENC_REPO)
         asset = _find_asset(rel.get("assets", []), NVENC_ASSET_RE)
         if not asset:
+            msg = "No NVEncC .deb found on GitHub releases"
             if progress:
-                progress(0, "No NVEncC .deb found on GitHub")
+                progress(0, msg)
+            if error_cb:
+                error_cb(msg)
             return False
         name, url = asset
         ver = _clean_version(rel.get("tag", ""))
@@ -329,7 +372,7 @@ class ToolUpdater:
             progress(5, f"Downloading NVEncC {ver}…")
         with tempfile.TemporaryDirectory(prefix="vconv_nvenc_") as td:
             deb = Path(td) / name
-            if not _download(url, deb, progress):
+            if not _download(url, deb, progress, error_cb):
                 return False
             if progress:
                 progress(55, "Extracting…")
@@ -338,21 +381,27 @@ class ToolUpdater:
             r = subprocess.run(["dpkg-deb", "-x", str(deb), str(dest)],
                                capture_output=True, text=True, timeout=120)
             if r.returncode != 0:
+                msg = f"dpkg-deb extraction failed: {r.stderr[:120]}"
                 if progress:
                     progress(0, "dpkg-deb extraction failed")
+                if error_cb:
+                    error_cb(msg)
                 return False
-            binaries = list(dest.rglob("NVEncC")) + list(dest.rglob("NVEncC64"))
-            if not binaries:
+            binary = _find_nvenc_binary(dest)
+            if not binary:
+                msg = "NVEncC binary not found in package"
                 if progress:
-                    progress(0, "NVEncC binary not found in package")
+                    progress(0, msg)
+                if error_cb:
+                    error_cb(msg)
                 return False
-            _symlink(binaries[0], BIN_DIR / "NVEncC")
+            _symlink(binary, BIN_DIR / "NVEncC")
             _cleanup_versions("nvencc-", keep=ver)
         if progress:
             progress(100, f"NVEncC {ver} installed")
         return True
 
-    def _install_handbrake(self, progress=None) -> bool:
+    def _install_handbrake(self, progress=None, error_cb=None) -> bool:  # noqa: C901
         """No official Linux prebuilt — try Flatpak CLI, else report latest."""
         flatpak = _which("flatpak")
         if flatpak:
@@ -365,18 +414,41 @@ class ToolUpdater:
                 if progress:
                     progress(100, "HandBrakeCLI installed via Flatpak")
                 return True
+            err = (r.stderr or r.stdout or "unknown flatpak error").strip()
+            msg = ("Flatpak install failed: " + err[:200] + ". "
+                   "This typically needs system-wide permission and a runtime "
+                   "download. If it keeps failing, run in a terminal:\n"
+                   "flatpak install flathub fr.handbrake.HandBrakeCLI")
             if progress:
-                progress(0, f"Flatpak install failed: {r.stderr[:200]}")
+                progress(0, f"Flatpak install failed: {err[:200]}")
+            if error_cb:
+                error_cb(msg)
             return False
+        msg = ("Flatpak not available. Install HandBrakeCLI via your package "
+               "manager (e.g. 'sudo apt install handbrake-cli'); latest release "
+               "is " + self.status_handbrake().latest_version + ".")
         if progress:
-            progress(0, "Flatpak not available. Latest HandBrake: " +
-                          self.status_handbrake().latest_version + ". Install via apt.")
+            progress(0, msg)
+        if error_cb:
+            error_cb(msg)
         return False
 
 
 # ---------------------------------------------------------------------------
 # low-level helpers
 # ---------------------------------------------------------------------------
+
+def _find_nvenc_binary(dest: Path) -> Optional[Path]:
+    """Locate the NVEncC executable inside an extracted deb, case-insensitively.
+
+    rigaya's recent debs ship the binary as lowercase ``usr/bin/nvencc`` while
+    older ones used ``usr/bin/NVEncC`` — only a case-insensitive scan is safe.
+    """
+    for p in dest.rglob("*"):
+        if p.is_file() and p.name.lower() in ("nvencc", "nvencc64"):
+            return p
+    return None
+
 
 def _extract_strip(tarball: Path, dest: Path, strip: int = 1) -> bool:
     """Extract a tar.xz stripping the top-level directory."""

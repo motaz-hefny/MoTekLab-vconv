@@ -64,8 +64,10 @@ class FakeUpdater:
         self.calls["status"] += 1
         return make_status(tid)
 
-    def update(self, tid):
+    def update(self, tid, error_cb=None):
         self.calls["update"] += 1
+        if error_cb:
+            self.calls["last_error_cb"] = error_cb
         return True
 
 
@@ -95,6 +97,8 @@ def main():
         check("status emitted for all 3 tools", seen == set(TOOL_IDS))
         check("auto_update_tools=True auto-updates only ffmpeg+nvencc",
               FakeUpdater.calls["update"] == 2)
+        check("auto-update passes an error_cb for failure logging",
+              callable(FakeUpdater.calls.get("last_error_cb")))
         check("auto_updated emitted for the 2 auto-installed tools", len(auto) == 2)
         check("done emitted exactly once", len(done) == 1)
 

@@ -112,6 +112,19 @@ Keeps encoding tools at their official latest from inside the app.
 - Distro versions like `6.1.1-3ubuntu5` parse fine via `updater.parse_version` (stops at first non-int suffix).
 - Install dir: `~/.local/share/vconv/tools/{ffmpeg-8.1,nvencc-9.38}`; bin symlinks in `tools/bin/`.
 
+**Fixes (10-08, verified live)**:
+- **NVEncC binary is LOWERCASE `usr/bin/nvencc`** in the 9.38 deb — `_find_nvenc_binary()` scans case-insensitively (`nvencc`/`nvencc64`); the old case-sensitive `rglob("NVEncC")` made every manual update fail with "NVEncC binary not found in package" after a successful download.
+- **NVEncC disclaimer**: `--version` prints `NVEnc (x64) 9.38 (r4176)` → parse with `_NVENC_VER_RE` = `NVEnc\s*\(x(?:64|86)\)\s*([^\s]+)`; the old `NVEncC <ver>` regex never matched, so a good install still showed an empty version and the dialog kept offering Update.
+- **Concurrency guard**: `_reserve_install`/`_release_install` per tool — the startup auto-update and a manual dialog Update can no longer both write the same tool dir; the second attempt gets `error_cb` "already running (startup auto-update?)".
+- **Real errors now surface**: `_download`/`_install_*`/`update()` pipe the reason through an `error_cb` arg into the dialog; `handbrake` shows the literal flatpak stderr + the manual `flatpak install` command. `tool_updater` logs via a `vconv.*` child logger so messages reach `~/.config/vconv/logs/vconv.log`. `ui/main_window.py` MUST keep its module logger `logger = get_logger("ui.main_window")` — before it existed, the `UpdateInstallWorker` except-path raised `NameError` inside the worker.
+
+## Responsive Window Sizing (v9.7.2)
+The 1250×800 default / 1100×700 minimum were too big for small laptops (up to ~1366×768, 1024×600). Rule in `ui/main_window.py`:
+- `_screen_window_bounds(avail_w, avail_h)` returns `(min, default)` shrunk to fit: floor min (760,520); default never below min. Design sizes kept on big screens.
+- `_apply_screen_sizing()` sets only `setMinimumSize` (must NOT `resize()` — `_load_window_geometry` later restores saved geometry, clamped to screen + never restored off-screen).
+- `launch()` bumps the base font +1pt only when screen ≥1920×1080 (guarded on `pointSize() > 0`).
+- Pure helper keeps UI sizing unit-testable offscreen (no `QApplication` needed).
+
 ## Encoder Capability Engine (v9.7.0)
 `core/encoder.py` is a runtime-probed capability engine, not a hardcoded map.
 - `probe_handbrake_encoders()` parses `HandBrakeCLI --help` encoder list (cached) → `HB_FAMILY_IDS[family] = (8bit_id, 10bit_id)` → `get_available_encoders()`.
