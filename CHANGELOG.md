@@ -18,7 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Presets re-encoded audio to AAC** (`presets/default_presets.json`): every preset forced `audio_encoder: "aac"`, so applying any preset silently switched the copy default to AAC (the reported "defaults changed to aac"). All 10 presets now use `copy` — presets preserve source audio like the global default; the audio encoder combo stays on copy unless the user changes it.
 
 ### Added
-- `tests/test_defaults_hardening.py` (31 checks): valid x265 `subme` in command + presets, wheel-guard, auto-recommend startup, audio-from-config, WhatsThis↔JSON RF sync, presets keep source audio. Full suite: **246 checks** green (11 files).
+- **Settings panel reorganized into tabs — Video | Audio | Subtitles** (`ui/main_window.py`, `self.settings_tabs`): matches the approved Option C mockup. Video holds Preset → Encoder → Crop & Color → Quality (RF) → Output → Format, with the "Preserve metadata" checkbox moved *inside* the Output box; Audio and Subtitles get their own pages. Every widget attribute, signal, WhatsThis and the wheel-guard are unchanged — container-only restructure; the panel still scrolls inside `settings_scroll`.
+- **Custom output folder pre-fills the user's Videos folder** (`ui/main_window.py`, new `default_videos_dir()`): "Same as source" remains the default radio; the Custom field starts with the last custom path used (persisted in `defaults.output_dir` on Browse and on every custom-mode conversion) or the XDG `XDG_VIDEOS_DIR` from `~/.config/user-dirs.dirs` (fallback `~/Videos`) on first run.
+- `tests/test_defaults_hardening.py` (42 checks): valid x265 `subme` in command + presets, wheel-guard, auto-recommend startup, audio-from-config, WhatsThis↔JSON RF sync, presets keep source audio, XDG Videos helper, custom-folder seed/persistence. Full suite: **268 checks** green (11 files) — includes the 10 new tab-structure checks in `tests/test_layout_dynamic.py` (now 16).
 
 ## [9.7.5] - 2026-10-08
 

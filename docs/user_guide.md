@@ -197,6 +197,8 @@ vconv does NOT overwrite files. If `output.mp4` exists, it creates `output_1.mp4
 
 ## Encoder Settings
 
+The left settings panel is organized into three tabs: **Video** (preset, encoder, crop & color, quality, output, format), **Audio**, and **Subtitles**.
+
 ### Available Encoders (v9.7.0)
 
 Since v9.7.0 the encoder dropdown is built **from your actual hardware** — only
@@ -373,6 +375,8 @@ HandBrakeCLI will fail with an error, and vconv will mark that file as failed. F
 ### Custom Folder
 
 All output goes to a single destination folder.
+
+On startup, "Same as source" is selected by default. The custom-folder field is pre-filled with the last folder you used, or your system's Videos folder on first use — browse to change it; the choice is remembered for next time.
 
 **With structure preservation (default):**
 ```

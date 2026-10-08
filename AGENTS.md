@@ -144,7 +144,7 @@ The 1250×800 default / 1100×700 minimum were too big for small laptops (up to 
 - `_apply_screen_sizing()` sets only `setMinimumSize` (must NOT `resize()` — `_load_window_geometry` later restores saved geometry, clamped to screen + never restored off-screen).
 - `launch()` bumps the base font +1pt only when screen ≥1920×1080 (guarded on `pointSize() > 0`).
 - Pure helper keeps UI sizing unit-testable offscreen (no `QApplication` needed).
-- **Settings panel lives in a `QScrollArea`** (`_create_central_widget`, `self.settings_scroll`): never remove it — the left panel's content is taller than small windows and Qt compresses the last boxes (Subtitles) without it. `self.sub_group` is exposed for `tests/test_layout_dynamic.py`.
+- **Settings panel = tabs inside a `QScrollArea`** (`_create_central_widget`, `self.settings_scroll`): the panel's `self.settings_tabs` is a `QTabWidget` with **Video | Audio | Subtitles** pages (Video: Preset→Encoder→Crop→Quality→Output→Format, metadata checkbox inside Output). Never remove the scroll area — the Video page is taller than small windows. `self.settings_tabs` and `self.sub_group` are exposed for `tests/test_layout_dynamic.py` (the no-squash test switches to the Subtitles tab before measuring).
 - **Activity Log has no height cap**: `log_group` sits in `self.log_splitter` (vertical, `setChildrenCollapsible(False)`, default ≈200 px, stretch only to the upper sections). Do not re-add `setMaximumHeight` on `self.log_text`.
 
 ## Encoder Capability Engine (v9.7.0)
