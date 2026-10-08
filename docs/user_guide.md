@@ -1,6 +1,6 @@
 # MoTekLab Video Encoder — User Guide
 
-> Version 9.7.3 | PyQt6 + HandBrakeCLI
+> Version 9.7.4 | PyQt6 + HandBrakeCLI
 > Language: English
 
 ---
@@ -1340,5 +1340,5 @@ A: Run `vconv --reset` or go to File → Settings → Reset to Defaults.
 
 ---
 
-*Last updated: 2026-10-08 | MoTekLab Video Encoder v9.7.3 | Created by MoTekLab*
+*Last updated: 2026-10-08 | MoTekLab Video Encoder v9.7.4 | Created by MoTekLab*
 *Full documentation and updates at [moteklab.com](https://moteklab.com)*
