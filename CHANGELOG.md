@@ -15,9 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Recommended encoder never auto-selected at startup** (`ui/main_window.py`): `encoder_combo.currentTextChanged` was connected *before* the `addItem` loop — the first `addItem` fired the signal and clobbered the config value `auto` with the first encoder (`nvenc_h264`), so the recommendation logic saw a concrete encoder, skipped the ★-badge auto-select, and conversion-time `auto` resolution broke. The connect now happens after the items exist; fresh config `encoder=auto` resolves to the GPU-recommended encoder and shows its badge.
 - **Configured audio default ignored at startup** (`ui/main_window.py`): `self.audio_encoder` was hardcoded `'copy'`/`128` instead of reading `defaults.audio_encoder`/`defaults.audio_bitrate` (asymmetric with the quality default). The combo now applies the config value at init; a saved `aac` default is restored.
 - **Preset Help text claimed stale RF numbers** (`ui/main_window.py`): WhatsThis said balanced RF 25 / high_quality RF 22 / tv_show RF 24 while `presets/default_presets.json` has 27 / 23 / 27 (the "RF 24" tooltip was the reported source of confusion). Help text is now derived-faithful to the JSON and additionally lists NVENC (27/25/22), web_optimized 25 and mobile 28.
+- **Presets re-encoded audio to AAC** (`presets/default_presets.json`): every preset forced `audio_encoder: "aac"`, so applying any preset silently switched the copy default to AAC (the reported "defaults changed to aac"). All 10 presets now use `copy` — presets preserve source audio like the global default; the audio encoder combo stays on copy unless the user changes it.
 
 ### Added
-- `tests/test_defaults_hardening.py` (21 checks): valid x265 `subme` in command + presets, wheel-guard, auto-recommend startup, audio-from-config, WhatsThis↔JSON RF sync. Full suite: **236 checks** green (11 files).
+- `tests/test_defaults_hardening.py` (31 checks): valid x265 `subme` in command + presets, wheel-guard, auto-recommend startup, audio-from-config, WhatsThis↔JSON RF sync, presets keep source audio. Full suite: **246 checks** green (11 files).
 
 ## [9.7.5] - 2026-10-08
 

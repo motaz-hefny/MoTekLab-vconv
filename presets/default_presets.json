@@ -5,7 +5,7 @@
       "description": "Quick encoding with good quality/size balance",
       "encoder": "x265",
       "quality": 27,
-      "audio_encoder": "aac",
+      "audio_encoder": "copy",
       "audio_bitrate": 128,
       "preset": "fast",
       "filters": {
@@ -28,7 +28,7 @@
       "description": "Recommended balance - your personal favorite settings",
       "encoder": "x265",
       "quality": 27,
-      "audio_encoder": "aac",
+      "audio_encoder": "copy",
       "audio_bitrate": 128,
       "preset": "medium",
       "filters": {
@@ -58,7 +58,7 @@
       "description": "Better quality, slightly larger files",
       "encoder": "x265",
       "quality": 23,
-      "audio_encoder": "aac",
+      "audio_encoder": "copy",
       "audio_bitrate": 192,
       "preset": "slow",
       "filters": {
@@ -88,7 +88,7 @@
       "description": "Best quality for long-term storage",
       "encoder": "x265",
       "quality": 20,
-      "audio_encoder": "aac",
+      "audio_encoder": "copy",
       "audio_bitrate": 256,
       "preset": "veryslow",
       "filters": {
@@ -118,7 +118,7 @@
       "description": "Fast GPU encoding with NVIDIA",
       "encoder": "nvenc_h265",
       "quality": 27,
-      "audio_encoder": "aac",
+      "audio_encoder": "copy",
       "audio_bitrate": 128,
       "filters": {
         "denoise": "off",
@@ -130,7 +130,7 @@
       "description": "Recommended NVIDIA GPU encoding",
       "encoder": "nvenc_h265",
       "quality": 25,
-      "audio_encoder": "aac",
+      "audio_encoder": "copy",
       "audio_bitrate": 128,
       "filters": {
         "denoise": "light",
@@ -142,7 +142,7 @@
       "description": "High quality NVIDIA GPU encoding",
       "encoder": "nvenc_h265",
       "quality": 22,
-      "audio_encoder": "aac",
+      "audio_encoder": "copy",
       "audio_bitrate": 192,
       "filters": {
         "denoise": "light",
@@ -154,7 +154,7 @@
       "description": "Optimized for TV shows - smaller files, good quality",
       "encoder": "x265",
       "quality": 27,
-      "audio_encoder": "aac",
+      "audio_encoder": "copy",
       "audio_bitrate": 128,
       "preset": "medium",
       "filters": {
@@ -184,7 +184,7 @@
       "description": "Optimized for streaming/web",
       "encoder": "x264",
       "quality": 25,
-      "audio_encoder": "aac",
+      "audio_encoder": "copy",
       "audio_bitrate": 128,
       "preset": "medium",
       "filters": {
@@ -201,7 +201,7 @@
       "description": "Smaller files for mobile devices",
       "encoder": "x264",
       "quality": 28,
-      "audio_encoder": "aac",
+      "audio_encoder": "copy",
       "audio_bitrate": 96,
       "preset": "fast",
       "filters": {

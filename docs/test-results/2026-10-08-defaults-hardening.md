@@ -48,12 +48,14 @@ recommendation. Post-fix: `win.encoder == nvenc_h265` + combo shows
 4. `config 'auto' resolves to recommended (nvenc_h265)` → fix → GREEN
 5. `saved audio default aac is restored at startup` → fix → GREEN
 6. `WhatsThis for balanced states RF 27 (found 25)` → fix → GREEN
+7. `preset fast: audio_encoder is copy` (user decision: presets keep source
+   audio) → all 10 preset `aac` → `copy` → GREEN
 
 ## Tests (`QT_QPA_PLATFORM=offscreen`)
 | File | Checks |
 |---|---|
 | test_conversion_flags | 23 |
-| **test_defaults_hardening (NEW)** | **21** |
+| **test_defaults_hardening (NEW)** | **31** |
 | test_e2e_format | 6 |
 | test_encoder_engine | 36 |
 | test_format_radio | 14 |
@@ -63,20 +65,23 @@ recommendation. Post-fix: `win.encoder == nvenc_h265` + combo shows
 | test_tools_startup_smoke | 12 |
 | test_tool_updater | 85 |
 | test_tool_worker | 8 |
-| **Total** | **236 green (11 files)** |
+| **Total** | **246 green (11 files)** |
 
 `py_compile` clean for `core/converter.py`, `ui/main_window.py`,
 `tests/test_defaults_hardening.py`.
 
 ## Files changed
 - `core/converter.py` — default `-x` `subme=9` → `7`
-- `presets/default_presets.json` — 4× `"subme": 9` → `7` (x265 presets only)
+- `presets/default_presets.json` — 4× `"subme": 9` → `7` (x265 presets only);
+  10× `audio_encoder: "aac"` → `"copy"` (user decision 2026-10-08: applying a
+  preset must not silently re-encode audio)
 - `ui/main_window.py` — QEvent import; `eventFilter` + install on left-panel
   combos/slider; encoder connect moved after `addItem`; audio encoder/bitrate
   from config + combo apply; preset WhatsThis RF numbers synced
-- `tests/test_defaults_hardening.py` — new, 21 checks
+- `tests/test_defaults_hardening.py` — new, 31 checks
 - `CHANGELOG.md`, this file, `AGENTS.md`
 
-## Open question
-All presets ship `audio_encoder: "aac"` (deliberate?) — if presets should
-preserve source audio too, change to `"copy"`; left as-is pending user input.
+## Decision
+Presets keep source audio (`audio_encoder: "copy"`, chosen 2026-10-08) — RF and
+encoder-speed preset changes only; the audio encoder stays on the global default
+unless the user changes it explicitly.

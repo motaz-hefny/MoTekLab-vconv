@@ -180,6 +180,13 @@ def test_preset_whatsthis_rf_matches_json():
     gc.collect()
 
 
+def test_presets_preserve_source_audio():
+    data = json.loads((ROOT / 'presets' / 'default_presets.json').read_text())
+    for name, p in data.get('presets', {}).items():
+        check(f"preset {name}: audio_encoder is copy",
+              p.get('audio_encoder') == 'copy')
+
+
 def main():
     app = QApplication.instance() or QApplication([])
     test_x265_default_command_uses_valid_subme()
@@ -188,6 +195,7 @@ def main():
     test_auto_recommended_encoder_selected_at_startup()
     test_audio_default_loaded_from_config()
     test_preset_whatsthis_rf_matches_json()
+    test_presets_preserve_source_audio()
     print(f"\nRESULT: ALL PASS ({PASS} checks)")
     return 0
 
