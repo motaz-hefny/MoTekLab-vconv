@@ -1,6 +1,6 @@
 # Plan: Universal Encoders + In-App Tool Auto-Download/Updater (v9.7.0)
 
-> Status: **IN PROGRESS — release pending.** Implementation 1–6 done; tests 1–8 done (113 checks green, see `docs/test-results/2026-10-08-v970-encoders-tools.md`); docs done; only build → commit → tag → release remain. Updated 2026-10-08.
+> Status: **COMPLETE — v9.7.0 published 2026-10-08.** Release: https://github.com/motaz-hefny/MoTekLab-vconv/releases/tag/v9.7.0 (`.deb` + `.AppImage` uploaded; in-app updater verified reporting 9.7.0). Notes: the old remote PAT was dead (stale `https://ghp_…@` URL) — remote URL cleaned to `https://github.com/motaz-hefny/MoTekLab-vconv.git`, pushes now need a live credential (e.g. `gh auth setup-git` or a fresh PAT).
 
 ## Goal (from user directives)
 
@@ -107,10 +107,10 @@ Registry (id, display, github repo, asset regex, installed-version detect, insta
 
 - Bump → tests pass → results recorded in `docs/test-results/` → docs current. **Done** (`docs/test-results/2026-10-08-v970-encoders-tools.md`).
 - Tool updater nuisances found during impl: BtbN ffmpeg assets carry a `-<ver>` suffix (`ffmpeg-n8.1-latest-linux64-gpl-8.1.tar.xz`), HandBrakeCLI prints its version as `HandBrake 1.7.2` (no `CLI` token), apt ffmpeg `6.1.1-3ubuntu5` needs distro-suffix-safe parsing — all covered in `tests/test_tool_updater.py`.
-- `git commit -m "v9.7.0: universal encoders, 10-bit/crop preservation, in-app tool updater"`
-- `git tag v9.7.0` → `git push origin main --tags`
-- Build both artifacts → create GitHub release **v9.7.0** → upload `.deb` + `.AppImage`.
-- Verify in-app auto-update (`utils/updater.py` reads latest release) reports 9.7.0.
+- `git commit -m "v9.7.0: universal encoders, 10-bit/crop preservation, in-app tool updater"` — **done** (`efd7f1d`).
+- `git tag v9.7.0` → `git push origin main --tags` — **done**.
+- Build both artifacts → create GitHub release **v9.7.0** → upload `.deb` + `.AppImage`. — **done**.
+- Verify in-app auto-update (`utils/updater.py` reads latest release) reports 9.7.0. — **done** (`available=False@latest=9.7.0`).
 
 ## Risks / notes
 
