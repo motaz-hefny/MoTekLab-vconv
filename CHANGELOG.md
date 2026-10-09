@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [10.0.1] - 2026-10-09
+
+### Fixed
+- **Embedded Subtitle Track Naming & Language Isolation** (`core/converter.py`): Resolved an issue where multiple embedded subtitle tracks in MKV outputs inherited the movie title rather than their respective languages (e.g. Arabic, English). Added `--subname` to HandBrakeCLI arguments and corrected FFmpeg metadata mapping from `-map_metadata:s 1` to `-map_metadata 1:g`, isolating container metadata from stream-level titles.
+- **Audio Track Naming Hierarchy** (`core/converter.py`, `core/analyzer.py`): Implemented strict naming hierarchy for audio streams (Track Title → ISO 639-2 natural language name → Movie Title fallback). Extracted stream titles from both `title` tags and MP4 `handler_name` attributes, passing `-A, --aname` to HandBrakeCLI and `-metadata:s:a:{idx} title=...` to FFmpeg.
+- **Validation Dialog Parity for MP4 Sources** (`ui/main_window.py`): Removed legacy `QMessageBox.information` shortcut so that clicking **Validate** on MP4 files always opens the rich, scrollable `Validation & Optimization Report` dialog with full stream readiness, codec compatibility, and efficiency checks.
+- **Efficiency Notice Parity for MP4 Sources** (`core/validator.py`, `ui/main_window.py`): Extended efficiency feedback to provide positive compression forecasts for H.264 MP4 sources converting to HEVC/AV1, ensuring the notice remains visible and informative.
+- **Media Analysis Formatting Parity** (`core/analyzer.py`, `ui/main_window.py`): Added `container_display` formatting (e.g. `MP4 (MPEG-4 Part 14)`), video profile extraction (`video_profile`), and listing of linked external subtitles in the Media Analysis cards.
+
+### Added
+- **Audio Track Dialog Custom Title Editing** (`ui/main_window.py`): Added a dedicated "Custom Title" column with text input in the Audio Tracks & Codecs configuration dialog, allowing custom labeling of commentary tracks, director cuts, or dubs.
+- **Persistent Subtitles in Saved Queue Jobs** (`ui/main_window.py`, `core/converter.py`): Queue jobs now serialize attached external subtitles in `queue.json`, preserving subtitle pairings across application restarts.
+- **"Copy to Clipboard" in Validation & Analysis Reports** (`ui/main_window.py`): Added a 1-click clipboard export button with visual confirmation to both the Validation & Optimization Report and Media Analysis dialogs.
+- **Intelligent Subtitle Language Guessing** (`ui/main_window.py`): Enhanced auto-matching to recognize natural language names (`arabic`, `english`, `french`, etc.), 2-letter codes (`ar`, `en`, `fr`), and multi-token filenames (e.g. `.ara.forced.srt`).
+
 ## [10.0.0] - 2026-10-09
 
 ### Security & Hardening

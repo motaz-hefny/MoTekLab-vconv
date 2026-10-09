@@ -32,6 +32,8 @@ class MediaInfo:
     framerate: Optional[str] = None
     pix_fmt: Optional[str] = None
     bit_depth: Optional[int] = None
+    video_profile: Optional[str] = None
+    codec_tag: Optional[str] = None
     audio_codec: Optional[str] = None
     audio_bitrate: Optional[str] = None
     audio_channels: Optional[str] = None
@@ -44,6 +46,19 @@ class MediaInfo:
             self.audio_streams = []
         if self.subtitle_streams is None:
             self.subtitle_streams = []
+
+    @property
+    def container_display(self) -> str:
+        if not self.container_format:
+            return ""
+        cf = self.container_format.lower()
+        if "matroska" in cf or "webm" in cf:
+            return "MKV (Matroska)"
+        elif "mp4" in cf or "mov" in cf or "m4a" in cf:
+            return "MP4 (MPEG-4 Part 14)"
+        elif "avi" in cf:
+            return "AVI"
+        return self.container_format
 
 
 class MediaAnalyzer:
@@ -168,6 +183,12 @@ class MediaAnalyzer:
                 info.video_codec = stream.get('codec_name', '').upper()
                 info.width = stream.get('width')
                 info.height = stream.get('height')
+                prof = stream.get('profile')
+                if prof and str(prof).lower() != 'unknown':
+                    info.video_profile = str(prof)
+                tag = stream.get('codec_tag_string')
+                if tag and str(tag).lower() not in ('[0][0][0][0]', 'none', ''):
+                    info.codec_tag = str(tag)
 
                 # Video bitrate from stream properties or container tags (e.g. MKV BPS)
                 v_bitrate = None
@@ -233,8 +254,18 @@ class MediaAnalyzer:
                         a_sample_rate = f"{sr_khz:.1f} kHz" if sr_val % 1000 != 0 else f"{int(sr_khz)} kHz"
                     except (ValueError, TypeError):
                         a_sample_rate = f"{sample_rate} Hz"
-                a_lang = stream.get('tags', {}).get('language', 'unknown') if stream.get('tags') else 'unknown'
-                a_title = stream.get('tags', {}).get('title', '') if stream.get('tags') else ''
+                a_tags = stream.get('tags', {}) or {}
+                a_lang = a_tags.get('language', 'unknown')
+                a_title = a_tags.get('title', '').strip()
+                if not a_title and a_tags.get('handler_name'):
+                    hname = a_tags.get('handler_name', '').strip()
+                    if hname.lower() not in (
+                        'soundhandler', 'videohandler', 'subtitlehandler',
+                        'audiohandler', 'sound handler', 'video handler',
+                        'subtitle handler', 'mainconcept mp4 sound media handler',
+                        'gpac iso audio handler'
+                    ):
+                        a_title = hname
                 audio_streams.append({
                     'index': stream.get('index'),
                     'codec': a_codec,
@@ -253,8 +284,15 @@ class MediaAnalyzer:
 
             elif codec_type == 'subtitle':
                 s_codec = stream.get('codec_name', '').upper()
-                lang = stream.get('tags', {}).get('language', 'unknown') if stream.get('tags') else 'unknown'
-                title = stream.get('tags', {}).get('title', f'Stream {len(subtitle_streams) + 1}') if stream.get('tags') else f'Stream {len(subtitle_streams) + 1}'
+                s_tags = stream.get('tags', {}) or {}
+                lang = s_tags.get('language', 'unknown')
+                title = s_tags.get('title', '').strip()
+                if not title and s_tags.get('handler_name'):
+                    hname = s_tags.get('handler_name', '').strip()
+                    if hname.lower() not in ('subtitlehandler', 'subtitle handler', 'sub handler'):
+                        title = hname
+                if not title:
+                    title = f'Stream {len(subtitle_streams) + 1}'
                 subtitle_streams.append({
                     'index': stream.get('index'),
                     'codec': s_codec,

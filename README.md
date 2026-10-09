@@ -21,7 +21,7 @@
 
 **MoTekLab Video Encoder** (formerly vconv) is a video converter GUI and CLI powered by HandBrakeCLI, built with PyQt6. Scan folders, convert video files in-place or to a new location, with hardware acceleration, subtitle handling, and a full conversion queue.
 
-Version: **10.0.0** (Lossless video passthrough & container remuxing, enriched media telemetry & bitrate inspection, memory-safe $O(1)$ RAM atom surgery, queue isolation & atomic persistence, non-blocking background media analyzer, Fahhim theming with 1-click toggle, pre-flight efficiency guard, modern AV1/HEVC presets, and hardened security permissions)
+Version: **10.0.1** (Subtitle language isolation & audio naming hierarchy, MP4 validation & efficiency notice parity, custom audio titles, and smart subtitle detection)
 
 ### Key Features
 

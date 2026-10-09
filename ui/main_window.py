@@ -258,7 +258,7 @@ class ConversionWorker(QThread):
                 if self.queue_manager:
                     self.queue_manager.update_job_state(job.id, JobState.RUNNING)
 
-                job_settings.external_srt_files = self.file_subtitles.get(input_file, [])
+                job_settings.external_srt_files = self.file_subtitles.get(input_file) or getattr(job_settings, 'external_srt_files', []) or []
 
                 self.file_started.emit(idx, total, os.path.basename(input_file))
                 debug_cmd = f"HandBrakeCLI -i \"{input_file}\" -o \"{output_file}\" --encoder {self.encoder_manager.to_handbrake_encoder(job_settings.encoder)} --quality {job_settings.quality}"
@@ -618,12 +618,12 @@ class ToolsDialog(QDialog):
 
 
 class AudioTrackDialog(QDialog):
-    """Per-track audio encoder/bitrate configuration dialog."""
+    """Per-track audio encoder/bitrate/title configuration dialog."""
     def __init__(self, audio_streams: list, global_encoder: str,
                  global_bitrate: int, overrides: dict[int, dict], parent=None):
         super().__init__(parent)
         self.setWindowTitle("Audio Track Configuration")
-        self.resize(600, 350)
+        self.resize(720, 360)
         self.audio_streams = audio_streams
         self.global_encoder = global_encoder
         self.global_bitrate = global_bitrate
@@ -632,13 +632,14 @@ class AudioTrackDialog(QDialog):
         layout = QVBoxLayout(self)
 
         info_label = QLabel(f"Configure each audio track individually. "
-                            f"Empty encoder = use global default ({global_encoder}).")
+                            f"Empty encoder = use global default ({global_encoder}). "
+                            f"Custom title overrides automatic language/movie naming.")
         info_label.setWordWrap(True)
         layout.addWidget(info_label)
 
         self.table = QTableWidget()
         self.table.setColumnCount(6)
-        self.table.setHorizontalHeaderLabels(["Track", "Language", "Codec", "Encoder", "Bitrate (kbps)", ""])
+        self.table.setHorizontalHeaderLabels(["Track", "Language", "Codec", "Encoder", "Bitrate (kbps)", "Custom Title"])
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         layout.addWidget(self.table)
@@ -694,7 +695,13 @@ class AudioTrackDialog(QDialog):
                 lambda txt, cb=bit_combo: cb.setEnabled(txt not in ('', 'copy')))
             self.table.setCellWidget(i, 4, bit_combo)
 
-            self.table.setItem(i, 5, QTableWidgetItem(""))
+            title_edit = QLineEdit()
+            title_edit.setPlaceholderText(title or "Auto (Language/Movie)")
+            current_title = ov.get('title', '')
+            if current_title:
+                title_edit.setText(current_title)
+            title_edit.setToolTip("Custom title for this track (e.g. Director Commentary, Arabic 5.1)")
+            self.table.setCellWidget(i, 5, title_edit)
 
     def _reset_all(self):
         for i in range(self.table.rowCount()):
@@ -705,6 +712,9 @@ class AudioTrackDialog(QDialog):
             if bw:
                 bw.setCurrentText('')
                 bw.setEnabled(False)
+            tw = self.table.cellWidget(i, 5)
+            if tw:
+                tw.setText('')
 
     def _on_ok(self):
         overrides = {}
@@ -715,14 +725,19 @@ class AudioTrackDialog(QDialog):
             idx = int(idx_item.text().lstrip('#'))
             enc_w = self.table.cellWidget(i, 3)
             bit_w = self.table.cellWidget(i, 4)
-            if not enc_w:
-                continue
-            enc = enc_w.currentText().strip()
+            title_w = self.table.cellWidget(i, 5)
+            enc = enc_w.currentText().strip() if enc_w else ''
             bit = bit_w.currentText().strip() if bit_w else ''
-            if enc:
-                entry = {'encoder': enc}
-                if enc != 'copy' and bit:
-                    entry['bitrate'] = int(bit)
+            custom_title = title_w.text().strip() if title_w else ''
+
+            if enc or custom_title:
+                entry = {}
+                if enc:
+                    entry['encoder'] = enc
+                    if enc != 'copy' and bit:
+                        entry['bitrate'] = int(bit)
+                if custom_title:
+                    entry['title'] = custom_title
                 overrides[idx] = entry
         self.track_data = overrides
         self.accept()
@@ -994,6 +1009,7 @@ class MainWindow(QMainWindow):
                 self.file_table.setItem(row, 5, QTableWidgetItem(info.get('audio_bitrate', '')))
                 self.file_table.setItem(row, 6, QTableWidgetItem(info.get('resolution', '')))
                 self.file_table.setItem(row, 7, QTableWidgetItem(info.get('duration', '')))
+        self._update_efficiency_hint()
 
     def _analyze_files_batch(self, file_list: list[str]):
         """Analyze files in background worker and cache media info without freezing the UI."""
@@ -2068,9 +2084,13 @@ class MainWindow(QMainWindow):
             return
 
         info = self._file_info_cache.get(target_file, {})
-        warnings = self.validator.check_efficiency(target_file, info, self.quality, self.audio_encoder)
+        feedback = self.validator.get_efficiency_feedback(target_file, info, self.quality, self.audio_encoder, getattr(self, 'encoder', ''))
+        warnings = feedback.get('warnings', [])
         if warnings:
             self.efficiency_hint_label.setText("💡 <b>Efficiency Notice:</b>\n" + "\n".join(f"• {w}" for w in warnings))
+            self.efficiency_hint_label.setVisible(True)
+        elif feedback.get('message') and feedback.get('status') == 'optimal':
+            self.efficiency_hint_label.setText(f"💡 <b>Efficiency Notice:</b> {html.escape(feedback['message'])}")
             self.efficiency_hint_label.setVisible(True)
         else:
             self.efficiency_hint_label.setVisible(False)
@@ -2272,7 +2292,36 @@ class MainWindow(QMainWindow):
                 self.ext_sub_list.addItem(f"{os.path.basename(f)} [{lang}]")
 
     @staticmethod
-    def _auto_match_subtitles(video_files):
+    def _parse_subtitle_lang_code(val: str) -> str:
+        """Normalize subtitle language strings (e.g. 'ar', 'arabic', 'eng', 'forced') to ISO 639-2."""
+        val = val.lower().strip()
+        iso639_1_to_3 = {
+            'ar': 'ara', 'en': 'eng', 'fr': 'fre', 'es': 'spa', 'de': 'ger',
+            'it': 'ita', 'ja': 'jpn', 'ko': 'kor', 'zh': 'chi', 'ru': 'rus',
+            'pt': 'por', 'hi': 'hin', 'tr': 'tur', 'nl': 'dut', 'sv': 'swe',
+            'pl': 'pol', 'uk': 'ukr', 'cs': 'cze', 'el': 'gre', 'he': 'heb',
+            'fa': 'per', 'ur': 'urd', 'id': 'ind', 'vi': 'vie', 'th': 'tha'
+        }
+        name_to_3 = {
+            'arabic': 'ara', 'english': 'eng', 'french': 'fre', 'spanish': 'spa',
+            'german': 'ger', 'italian': 'ita', 'japanese': 'jpn', 'korean': 'kor',
+            'chinese': 'chi', 'russian': 'rus', 'portuguese': 'por', 'hindi': 'hin',
+            'turkish': 'tur', 'dutch': 'dut', 'swedish': 'swe', 'polish': 'pol',
+            'ukrainian': 'ukr', 'czech': 'cze', 'greek': 'gre', 'hebrew': 'heb',
+            'persian': 'per', 'urdu': 'urd', 'indonesian': 'ind', 'vietnamese': 'vie'
+        }
+        if val in ('ara', 'eng', 'fre', 'fra', 'spa', 'ger', 'deu', 'ita', 'jpn', 'kor', 'chi', 'zho', 'rus', 'por', 'hin', 'tur', 'und'):
+            return val
+        if val in iso639_1_to_3:
+            return iso639_1_to_3[val]
+        if val in name_to_3:
+            return name_to_3[val]
+        if len(val) == 3:
+            return val
+        return 'und'
+
+    @classmethod
+    def _auto_match_subtitles(cls, video_files):
         """Auto-detect subtitle files matching video files by Plex-style naming."""
         sub_exts = ('.srt', '.ass', '.ssa', '.sub', '.vtt')
         result = {}
@@ -2288,8 +2337,14 @@ class MainWindow(QMainWindow):
                     if p.stem == base:
                         lang = 'und'
                     elif p.stem.startswith(base + '.'):
-                        suffix = p.stem[len(base) + 1:]
-                        lang = suffix if len(suffix) == 3 else 'und'
+                        raw_suffix = p.stem[len(base) + 1:].lower()
+                        parts = raw_suffix.split('.')
+                        lang = 'und'
+                        for part in parts:
+                            guessed = cls._parse_subtitle_lang_code(part)
+                            if guessed != 'und':
+                                lang = guessed
+                                break
                     else:
                         continue
                     entry = (str(p), lang)
@@ -2306,6 +2361,9 @@ class MainWindow(QMainWindow):
         valid = 0
         issues = []
         efficiency_warnings = []
+        readiness_items = []
+        p = current_palette()
+
         for f in self.files:
             out = generate_output_path(f, format=self.format, conflict_mode='rename')
             result = self.validator.validate_file(f, out)
@@ -2318,15 +2376,39 @@ class MainWindow(QMainWindow):
             if eff:
                 efficiency_warnings.append((os.path.basename(f), eff))
 
-        if not issues and not efficiency_warnings:
-            QMessageBox.information(self, "Validation", f"✅ All {valid} file(s) are valid and ready with optimal settings!")
-            return
+            fb = self.validator.get_efficiency_feedback(f, info, self.quality, self.audio_encoder, getattr(self, 'encoder', ''))
+            v_desc = info.get('video', '')
+            if info.get('resolution'):
+                v_desc += f" {info['resolution']}"
+            if info.get('video_bitrate'):
+                v_desc += f" ({info['video_bitrate']})"
+            a_desc = info.get('audio', '')
+            if info.get('audio_bitrate'):
+                a_desc += f" ({info['audio_bitrate']})"
+            sub_count = len(info.get('subtitle_streams', []))
+            ext_subs = len(self.file_subtitles.get(f, []))
+            sub_parts = []
+            if sub_count:
+                sub_parts.append(f"{sub_count} embedded sub(s)")
+            if ext_subs:
+                sub_parts.append(f"{ext_subs} linked external sub(s)")
+            sub_desc = " • " + ", ".join(sub_parts) if sub_parts else ""
 
-        # Show rich, themed, scrollable report dialog for issues or optimization warnings
-        p = current_palette()
+            readiness_items.append(
+                f"<div style='margin-bottom: 8px;'>"
+                f"<b>{html.escape(os.path.basename(f))}</b><br/>"
+                f"<span style='font-size: 11px; color: {p['muted_fg']};'>"
+                f"Source: {html.escape(v_desc or 'N/A')} • {html.escape(a_desc or 'N/A')}{html.escape(sub_desc)}<br/>"
+                f"Target: {self.format.upper()} ({getattr(self, 'encoder', 'auto')}, RF {self.quality}) • Audio: {self.audio_encoder}"
+                f"</span><br/>"
+                f"<span style='font-size: 11px; color: {p['success']};'>✓ {html.escape(fb.get('message', 'Ready with optimal settings.'))}</span>"
+                f"</div>"
+            )
+
+        # Show rich, themed, scrollable report dialog for issues, optimization warnings, or optimal readiness
         dlg = QDialog(self)
         dlg.setWindowTitle("Validation & Optimization Report")
-        dlg.resize(680, 500)
+        dlg.resize(680, 520)
         dlg_layout = QVBoxLayout(dlg)
         dlg_layout.setContentsMargins(16, 16, 16, 16)
         dlg_layout.setSpacing(12)
@@ -2367,10 +2449,27 @@ class MainWindow(QMainWindow):
                 + "</div>"
             )
 
+        if readiness_items:
+            html_blocks.append(
+                f"<div style='margin-bottom: 12px; padding: 10px; border: 1px solid {p['border']}; "
+                f"border-radius: 6px; background-color: {p['card']};'>"
+                f"<div style='color: {p['success']}; font-weight: bold; font-size: 13px; margin-bottom: 6px;'>"
+                f"✅ File Readiness & Optimal Settings ({len(readiness_items)})</div>"
+                + "".join(readiness_items)
+                + "</div>"
+            )
+
         text.setHtml("".join(html_blocks))
         dlg_layout.addWidget(text)
 
         btn_row = QHBoxLayout()
+        copy_btn = QPushButton("📋 Copy to Clipboard")
+        copy_btn.clicked.connect(lambda: (
+            QApplication.clipboard().setText(text.toPlainText()),
+            copy_btn.setText("✓ Copied!"),
+            QTimer.singleShot(2000, lambda: copy_btn.setText("📋 Copy to Clipboard"))
+        ))
+        btn_row.addWidget(copy_btn)
         btn_row.addStretch()
         btn = QPushButton("Close")
         btn.clicked.connect(dlg.close)
@@ -2391,9 +2490,11 @@ class MainWindow(QMainWindow):
                     v_bitrate_str = f" • <b>Bitrate:</b> {info.video_bitrate}" if info.video_bitrate else ""
                     fps_str = f" • {info.framerate} fps" if info.framerate else ""
                     depth_str = f" • {info.bit_depth or 8}-bit" if info.bit_depth else ""
-                    pix_str = f" ({info.pix_fmt})" if info.pix_fmt else ""
+                    prof_str = f" ({info.video_profile})" if getattr(info, 'video_profile', None) else ""
+                    pix_str = f" [{info.pix_fmt}]" if info.pix_fmt else ""
                     overall_str = f" • <b>Overall Bitrate:</b> {info.overall_bitrate}" if info.overall_bitrate else ""
-                    fmt_str = f" • <b>Container:</b> {info.container_format}" if info.container_format else ""
+                    container_clean = getattr(info, 'container_display', info.container_format)
+                    fmt_str = f" • <b>Container:</b> {container_clean}" if container_clean else ""
 
                     audio_rows = []
                     if info.audio_streams:
@@ -2436,9 +2537,29 @@ class MainWindow(QMainWindow):
                     if sub_rows:
                         sub_block = (
                             f"<div style='margin-top: 6px; color: {p['foreground']};'>"
-                            f"📝 <b>Subtitles ({len(info.subtitle_streams)}):</b><br/>"
+                            f"📝 <b>Embedded Subtitles ({len(info.subtitle_streams)}):</b><br/>"
                             + "<div style='padding-left: 14px; margin-top: 2px;'>"
                             + "<br/>".join(sub_rows)
+                            + "</div></div>"
+                        )
+
+                    ext_subs = self.file_subtitles.get(f, [])
+                    ext_sub_rows = []
+                    if ext_subs:
+                        from core.converter import ISO639_LANG_NAMES
+                        for idx, entry in enumerate(ext_subs, 1):
+                            s_file, s_lang = entry if isinstance(entry, tuple) else (entry, 'eng')
+                            lang_title = ISO639_LANG_NAMES.get(s_lang.lower(), s_lang.title()) if s_lang and s_lang not in ('und', 'unknown') else 'Undetermined'
+                            ext_sub_rows.append(
+                                f"#{idx}: <b>{html.escape(lang_title)}</b> [{html.escape(s_lang)}] &mdash; <i>{html.escape(os.path.basename(s_file))}</i>"
+                            )
+                    ext_sub_block = ""
+                    if ext_sub_rows:
+                        ext_sub_block = (
+                            f"<div style='margin-top: 6px; color: {p['foreground']};'>"
+                            f"📎 <b>Linked External Subtitles ({len(ext_subs)}):</b><br/>"
+                            + "<div style='padding-left: 14px; margin-top: 2px;'>"
+                            + "<br/>".join(ext_sub_rows)
                             + "</div></div>"
                         )
 
@@ -2449,8 +2570,8 @@ class MainWindow(QMainWindow):
                         f"📄 {html.escape(info.filename)} <span style='font-size: 11px; font-weight: normal; color: {p['muted_fg']};'>({info.filesize})</span></div>"
                         f"<div style='font-size: 12px; color: {p['foreground']};'>"
                         f"⏱️ <b>Duration:</b> {info.duration or 'N/A'}{overall_str}{fmt_str}<br/>"
-                        f"🎬 <b>Video:</b> {info.video_codec or 'N/A'} {info.width or '?'}x{info.height or '?'}{fps_str}{v_bitrate_str}{depth_str}{pix_str}</div>"
-                        f"{audio_block}{sub_block}</div>"
+                        f"🎬 <b>Video:</b> {info.video_codec or 'N/A'}{prof_str} {info.width or '?'}x{info.height or '?'}{fps_str}{v_bitrate_str}{depth_str}{pix_str}</div>"
+                        f"{audio_block}{sub_block}{ext_sub_block}</div>"
                     )
                     cards_html.append(card)
             except Exception as e:
@@ -2474,6 +2595,13 @@ class MainWindow(QMainWindow):
             dlg_layout.addWidget(text)
 
             btn_row = QHBoxLayout()
+            copy_btn = QPushButton("📋 Copy to Clipboard")
+            copy_btn.clicked.connect(lambda: (
+                QApplication.clipboard().setText(text.toPlainText()),
+                copy_btn.setText("✓ Copied!"),
+                QTimer.singleShot(2000, lambda: copy_btn.setText("📋 Copy to Clipboard"))
+            ))
+            btn_row.addWidget(copy_btn)
             btn_row.addStretch()
             btn = QPushButton("Close")
             btn.clicked.connect(dlg.close)
@@ -2843,6 +2971,7 @@ class MainWindow(QMainWindow):
                     'crop_custom': self.crop_custom_edit.text() if hasattr(self, 'crop_custom_edit') and self.crop_custom_radio.isChecked() else '',
                     'preserve_bit_depth': self.bitdepth_check.isChecked() if hasattr(self, 'bitdepth_check') else True,
                     'encoder_preset': self._current_av1_preset(),
+                    'external_srt_files': self.file_subtitles.get(input_path, []),
                 }
             )
             self.queue_manager.add_job(job)

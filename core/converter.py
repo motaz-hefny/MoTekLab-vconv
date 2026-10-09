@@ -19,6 +19,38 @@ from utils.logging import get_logger
 
 logger = get_logger("converter")
 
+ISO639_LANG_NAMES = {
+    'ara': 'Arabic', 'ar': 'Arabic',
+    'eng': 'English', 'en': 'English',
+    'fre': 'French', 'fra': 'French', 'fr': 'French',
+    'spa': 'Spanish', 'es': 'Spanish',
+    'ger': 'German', 'deu': 'German', 'de': 'German',
+    'ita': 'Italian', 'it': 'Italian',
+    'jpn': 'Japanese', 'ja': 'Japanese',
+    'kor': 'Korean', 'ko': 'Korean',
+    'chi': 'Chinese', 'zho': 'Chinese', 'zh': 'Chinese',
+    'hin': 'Hindi', 'hi': 'Hindi',
+    'tur': 'Turkish', 'tr': 'Turkish',
+    'por': 'Portuguese', 'pt': 'Portuguese',
+    'rus': 'Russian', 'ru': 'Russian',
+    'pol': 'Polish', 'pl': 'Polish',
+    'dut': 'Dutch', 'nld': 'Dutch', 'nl': 'Dutch',
+    'swe': 'Swedish', 'sv': 'Swedish',
+    'nor': 'Norwegian', 'no': 'Norwegian',
+    'dan': 'Danish', 'da': 'Danish',
+    'fin': 'Finnish', 'fi': 'Finnish',
+    'heb': 'Hebrew', 'he': 'Hebrew',
+    'fas': 'Persian', 'per': 'Persian', 'fa': 'Persian',
+    'ukr': 'Ukrainian', 'uk': 'Ukrainian',
+    'vie': 'Vietnamese', 'vi': 'Vietnamese',
+    'tha': 'Thai', 'th': 'Thai',
+    'ind': 'Indonesian', 'id': 'Indonesian',
+    'ces': 'Czech', 'cze': 'Czech', 'cs': 'Czech',
+    'ron': 'Romanian', 'rum': 'Romanian', 'ro': 'Romanian',
+    'ell': 'Greek', 'gre': 'Greek', 'el': 'Greek',
+    'hun': 'Hungarian', 'hu': 'Hungarian',
+}
+
 @dataclass
 class ConversionSettings:
     encoder: str = "x265"
@@ -807,7 +839,7 @@ class Converter:
         def build_ffmpeg_cmd(meta_source):
             cmd = [
                 ffmpeg_bin, '-y', '-i', dest_path, '-i', meta_source,
-                '-map', '0', '-map_metadata:g', '1', '-map_metadata:s', '1',
+                '-map', '0', '-map_metadata', '1:g',
                 '-c', 'copy'
             ]
             if output_format == 'mp4':
@@ -1177,6 +1209,10 @@ class Converter:
                 if settings.audio_bitrate:
                     cmd.extend(['--ab', str(settings.audio_bitrate)])
 
+        audio_names = self._resolve_audio_track_names(input_path, settings)
+        if audio_names:
+            cmd.extend(['--aname', ','.join(audio_names)])
+
         if settings.resolution and 'x' in settings.resolution:
             w, h = settings.resolution.split('x')
             cmd.extend(['--width', w, '--height', h])
@@ -1196,7 +1232,7 @@ class Converter:
         else:
             cmd.extend(['--format', 'mp4'])
 
-        cmd.extend(self._build_subtitle_args(settings))
+        cmd.extend(self._build_subtitle_args(settings, input_path=input_path))
 
         if settings.metadata_preserve_flag and settings.metadata_preserve:
             cmd.append(settings.metadata_preserve_flag)
@@ -1210,6 +1246,46 @@ class Converter:
                 cmd.extend(['-x', 'cabac=1:ref=5:analyse=0x133:me=umh:subme=7:chroma-me=1:deadzone-inter=21:deadzone-intra=11:b-adapt=2:rc-lookahead=60:vbv-maxrate=10000:vbv-bufsize=10000:qpmax=69:bframes=5:direct=auto'])
 
         return cmd
+
+    def _resolve_audio_track_names(self, input_path: str, settings: ConversionSettings) -> list[str]:
+        """Resolve audio track names according to user preferences:
+        - If audio track title is known, name it accordingly.
+        - If track has a known language, name it after the language.
+        - If language is unknown/und and no title exists, name it as the movie name only.
+        """
+        try:
+            from core.analyzer import MediaAnalyzer
+            info = MediaAnalyzer().analyze(input_path)
+            streams = info.audio_streams if info else []
+        except Exception:
+            streams = []
+
+        movie_name = Path(input_path).stem
+        if settings.audio_track_overrides:
+            tracks = sorted(settings.audio_track_overrides.keys())
+        else:
+            tracks = list(range(1, max(len(streams), 1) + 1))
+
+        resolved_names = []
+        for t in tracks:
+            st = streams[t - 1] if 0 <= t - 1 < len(streams) else {}
+            existing_title = st.get('title', '').strip() if st else ''
+            lang = st.get('language', '').strip().lower() if st else ''
+            override_title = ''
+            if settings.audio_track_overrides and t in settings.audio_track_overrides:
+                override_title = settings.audio_track_overrides[t].get('title', '').strip()
+
+            if override_title:
+                name = override_title
+            elif existing_title and existing_title.lower() not in ('stream 1', 'stream 2', 'audio'):
+                name = existing_title
+            elif lang and lang not in ('und', 'unknown'):
+                name = ISO639_LANG_NAMES.get(lang, lang.title())
+            else:
+                name = movie_name
+
+            resolved_names.append(name.replace(',', ' -'))
+        return resolved_names
 
     def _effective_bit_depth(self, input_path: str, settings: ConversionSettings) -> int:
         """Resolve the target color bit depth.
@@ -1273,7 +1349,7 @@ class Converter:
         extra_inputs = 0
         if settings.external_srt_files:
             for sub_entry in settings.external_srt_files:
-                sub_path = sub_entry[0] if isinstance(sub_entry, tuple) else sub_entry
+                sub_path = sub_entry[0] if isinstance(sub_entry, (tuple, list)) else sub_entry
                 if os.path.exists(sub_path):
                     cmd.extend(['-i', sub_path])
                     extra_inputs += 1
@@ -1305,13 +1381,35 @@ class Converter:
                 if settings.audio_bitrate:
                     cmd.extend(['-b:a', f'{settings.audio_bitrate}k'])
 
+        # Audio track metadata
+        audio_names = self._resolve_audio_track_names(input_path, settings)
+        for a_idx, a_name in enumerate(audio_names):
+            cmd.extend([f'-metadata:s:a:{a_idx}', f'title={a_name}'])
+
         # Subtitles
         if settings.subtitle_mode == 'none':
             cmd.append('-sn')
         else:
+            num_existing_subs = 0
+            if settings.subtitle_mode in ['copy', 'all']:
+                try:
+                    from core.analyzer import MediaAnalyzer
+                    in_info = MediaAnalyzer().analyze(input_path)
+                    if in_info and in_info.subtitle_streams:
+                        num_existing_subs = len(in_info.subtitle_streams)
+                except Exception:
+                    pass
+
             cmd.extend(['-map', '0:s?'])
             for ext_idx in range(1, extra_inputs + 1):
                 cmd.extend(['-map', f'{ext_idx}:0'])
+                sub_entry = settings.external_srt_files[ext_idx - 1]
+                sub_path, lang = sub_entry if isinstance(sub_entry, (tuple, list)) else (sub_entry, 'eng')
+                sub_lang = lang if lang and lang not in ('und', 'unknown') else 'und'
+                sub_title = ISO639_LANG_NAMES.get(sub_lang.lower(), Path(input_path).stem if sub_lang == 'und' else sub_lang.title())
+                s_idx = num_existing_subs + ext_idx - 1
+                cmd.extend([f'-metadata:s:s:{s_idx}', f'language={sub_lang}'])
+                cmd.extend([f'-metadata:s:s:{s_idx}', f'title={sub_title}'])
 
             out_ext = Path(output_path).suffix.lower()
             if out_ext == '.mp4':
@@ -1329,7 +1427,7 @@ class Converter:
         cmd.append(output_path)
         return cmd
 
-    def _build_subtitle_args(self, settings: ConversionSettings) -> list:
+    def _build_subtitle_args(self, settings: ConversionSettings, input_path: str = None) -> list:
         args = []
 
         if settings.subtitle_mode == 'none':
@@ -1357,8 +1455,8 @@ class Converter:
         ssa_defaults = []
         ssa_burns = []
 
-        for i, sub_entry in enumerate(settings.external_srt_files):
-            if isinstance(sub_entry, tuple):
+        for i, sub_entry in enumerate(settings.external_srt_files or []):
+            if isinstance(sub_entry, (tuple, list)):
                 srt_file, lang = sub_entry
             else:
                 srt_file = sub_entry
@@ -1401,6 +1499,36 @@ class Converter:
                 args.extend(['--ssa-default', ','.join(ssa_defaults)])
             if ssa_burns:
                 args.extend(['--ssa-burn', ','.join(ssa_burns)])
+
+        # Subtitle track names
+        sub_names = []
+        if input_path and settings.subtitle_mode in ['copy', 'all']:
+            try:
+                from core.analyzer import MediaAnalyzer
+                in_info = MediaAnalyzer().analyze(input_path)
+                if in_info and in_info.subtitle_streams:
+                    for s in in_info.subtitle_streams:
+                        t = s.get('title', '').strip()
+                        l = s.get('language', '').strip().lower()
+                        if t and not t.lower().startswith('stream '):
+                            name = t
+                        elif l and l not in ('und', 'unknown'):
+                            name = ISO639_LANG_NAMES.get(l, l.title())
+                        else:
+                            name = Path(input_path).stem
+                        sub_names.append(name.replace(',', ' -'))
+            except Exception:
+                pass
+
+        for lang in (srt_langs + ssa_langs):
+            if lang and lang.lower() not in ('und', 'unknown'):
+                s_name = ISO639_LANG_NAMES.get(lang.lower(), lang.title())
+            else:
+                s_name = Path(input_path).stem if input_path else f"Subtitle {len(sub_names) + 1}"
+            sub_names.append(s_name.replace(',', ' -'))
+
+        if sub_names:
+            args.extend(['--subname', ','.join(sub_names)])
 
         return args
 

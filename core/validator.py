@@ -194,7 +194,7 @@ class FileValidator:
         v_bitrate_str = str(media_info.get('video_bitrate', '')).lower()
 
         if is_already_hevc and quality <= 28:
-            codec_name = "HEVC" if ("HEVC" in v_codec or "H.265" in v_codec) else ("AV1" if "AV1" in v_codec else "compressed")
+            codec_name = "HEVC" if ("HEVC" in v_codec or "H.265" in v_codec) else ("AV1" if "AV1" in v_codec else ("VP9" if "VP9" in v_codec else "compressed"))
             br_info = f" ({v_bitrate_str})" if v_bitrate_str else ""
             warnings.append(
                 f"Source video is already {codec_name}{br_info}. "
@@ -205,7 +205,10 @@ class FileValidator:
         a_codec = str(media_info.get('audio', media_info.get('audio_codec', ''))).upper()
         a_br = str(media_info.get('audio_bitrate', '')).lower()
         if audio_encoder == 'copy':
-            is_heavy_audio = any(k in a_br for k in ('768', '1509', '640', '448')) or any(k in a_codec for k in ('DTS', 'TRUEHD', 'EAC3'))
+            import re
+            m = re.search(r'(\d+)', a_br)
+            br_val = int(m.group(1)) if m else 0
+            is_heavy_audio = br_val >= 448 or any(k in a_codec for k in ('DTS', 'TRUEHD', 'EAC3'))
             if is_heavy_audio:
                 warnings.append(
                     f"Audio track is high-bitrate ({a_codec} {a_br}). "
@@ -214,6 +217,49 @@ class FileValidator:
                 )
 
         return warnings
+
+    def get_efficiency_feedback(self, file_path: str, media_info: dict, quality: int,
+                                audio_encoder: str = "copy", encoder: str = "") -> dict:
+        """
+        Get complete efficiency feedback and optimization forecasts for all media formats (MP4 and MKV).
+        Returns a dict with 'status' ('warning', 'optimal', 'passthrough', 'info'), 'warnings', and 'message'.
+        """
+        if encoder == 'copy':
+            return {
+                'status': 'passthrough',
+                'warnings': [],
+                'message': 'Passthrough Active: Video stream copied directly without re-encoding (instantaneous & 100% lossless).'
+            }
+
+        warnings = self.check_efficiency(file_path, media_info, quality, audio_encoder)
+        if warnings:
+            return {
+                'status': 'warning',
+                'warnings': warnings,
+                'message': warnings[0]
+            }
+
+        if not media_info:
+            return {
+                'status': 'info',
+                'warnings': [],
+                'message': f'Settings configured for RF {quality}. Analysis pending.'
+            }
+
+        v_codec = str(media_info.get('video', media_info.get('video_codec', ''))).upper()
+        v_res = str(media_info.get('resolution', '')).lower()
+        v_br = str(media_info.get('video_bitrate', '')).lower()
+        v_label = "H.264" if any(c in v_codec for c in ('H264', 'H.264', 'AVC')) else (v_codec or "Source")
+        enc_label = encoder.upper() if encoder else "HEVC"
+
+        res_str = f" ({v_res})" if v_res else ""
+        br_str = f" @ {v_br}" if v_br and "total" not in v_br else ""
+        msg = f"Optimal: Converting {v_label}{res_str}{br_str} to {enc_label} (RF {quality}) is projected to achieve ~30–50% file size reduction with excellent visual fidelity."
+        return {
+            'status': 'optimal',
+            'warnings': [],
+            'message': msg
+        }
 
 
 # Utility functions
