@@ -173,6 +173,8 @@ class BatchAnalyzeWorker(QThread):
                         'container_format': info.container_format or '',
                         'overall_bitrate': info.overall_bitrate or '',
                         'framerate': info.framerate or '',
+                        'width': info.width,
+                        'height': info.height,
                         'bit_depth': info.bit_depth or 8,
                         'pix_fmt': info.pix_fmt or '',
                     }
@@ -235,111 +237,121 @@ class ConversionWorker(QThread):
         return generate_output_path(input_file, format=out_fmt, conflict_mode='rename')
 
     def run(self):
-        if self.jobs:
-            total = len(self.jobs)
+        try:
+            if self.jobs:
+                total = len(self.jobs)
+                success = 0
+                failed = 0
+
+                for idx, job in enumerate(self.jobs):
+                    if self._cancel:
+                        break
+
+                    if self._skip:
+                        self._skip = False
+                        if self.queue_manager:
+                            self.queue_manager.update_job_state(job.id, JobState.CANCELLED)
+                        self.file_finished.emit(False, f"Skipped: {os.path.basename(job.input_path)}")
+                        failed += 1
+                        continue
+
+                    try:
+                        input_file = job.input_path
+                        job_settings = self._build_job_settings(job.settings)
+                        output_file = job.output_path or self._resolve_output(input_file, job_settings)
+                        if self.queue_manager:
+                            self.queue_manager.update_job_state(job.id, JobState.RUNNING)
+
+                        job_settings.external_srt_files = self.file_subtitles.get(input_file) or getattr(job_settings, 'external_srt_files', []) or []
+
+                        self.file_started.emit(idx, total, os.path.basename(input_file))
+                        hb_enc = self.encoder_manager.to_handbrake_encoder(job_settings.encoder) if hasattr(self.encoder_manager, 'to_handbrake_encoder') else job_settings.encoder
+                        debug_cmd = f"HandBrakeCLI -i \"{input_file}\" -o \"{output_file}\" --encoder {hb_enc} --quality {job_settings.quality}"
+                        self.command_ready.emit(debug_cmd)
+
+                        def progress_cb(prog):
+                            if self.queue_manager:
+                                self.queue_manager.update_progress(job.id, prog.percent)
+                            self.progress.emit(prog)
+
+                        def meta_log_cb(msg):
+                            self.metadata_log.emit(msg)
+
+                        result = self._converter.convert(input_file, output_file, job_settings,
+                                                         progress_callback=progress_cb, log_callback=meta_log_cb)
+                        if result:
+                            success += 1
+                            if self.queue_manager:
+                                self.queue_manager.update_job_state(job.id, JobState.COMPLETED)
+                            self.file_finished.emit(True, output_file)
+                        else:
+                            failed += 1
+                            if self.queue_manager:
+                                self.queue_manager.update_job_state(job.id, JobState.FAILED)
+                            self.file_finished.emit(False, input_file)
+                    except Exception as e:
+                        logger.exception(f"Error converting queued job {getattr(job, 'id', idx)}: {e}")
+                        failed += 1
+                        if self.queue_manager:
+                            self.queue_manager.update_job_state(job.id, JobState.FAILED, error_message=str(e))
+                        self.error_occurred.emit(str(e))
+                        self.file_finished.emit(False, str(e))
+
+                self.all_finished.emit(success, failed, total - success - failed)
+                return
+
+            total = len(self.files)
             success = 0
             failed = 0
 
-            for idx, job in enumerate(self.jobs):
+            for idx, input_file in enumerate(self.files):
                 if self._cancel:
                     break
 
                 if self._skip:
                     self._skip = False
-                    if self.queue_manager:
-                        self.queue_manager.update_job_state(job.id, JobState.CANCELLED)
-                    self.file_finished.emit(False, f"Skipped: {os.path.basename(job.input_path)}")
+                    self.file_finished.emit(False, f"Skipped: {os.path.basename(input_file)}")
                     failed += 1
                     continue
 
-                input_file = job.input_path
-                job_settings = self._build_job_settings(job.settings)
-                output_file = job.output_path or self._resolve_output(input_file, job_settings)
-                if self.queue_manager:
-                    self.queue_manager.update_job_state(job.id, JobState.RUNNING)
-
-                job_settings.external_srt_files = self.file_subtitles.get(input_file) or getattr(job_settings, 'external_srt_files', []) or []
-
-                self.file_started.emit(idx, total, os.path.basename(input_file))
-                debug_cmd = f"HandBrakeCLI -i \"{input_file}\" -o \"{output_file}\" --encoder {self.encoder_manager.to_handbrake_encoder(job_settings.encoder)} --quality {job_settings.quality}"
-                self.command_ready.emit(debug_cmd)
-
-                def progress_cb(prog):
-                    if self.queue_manager:
-                        self.queue_manager.update_progress(job.id, prog.percent)
-                    self.progress.emit(prog)
-
-                def meta_log_cb(msg):
-                    self.metadata_log.emit(msg)
-
                 try:
-                    result = self._converter.convert(input_file, output_file, job_settings,
+                    self.file_started.emit(idx, total, os.path.basename(input_file))
+                    output_file = self._resolve_output(input_file)
+
+                    # Set per-file subtitles
+                    self.settings.external_srt_files = self.file_subtitles.get(input_file, [])
+
+                    # Construct command for debug logging
+                    hb_enc = self.encoder_manager.to_handbrake_encoder(self.settings.encoder) if hasattr(self.encoder_manager, 'to_handbrake_encoder') else self.settings.encoder
+                    debug_cmd = f"HandBrakeCLI -i \"{input_file}\" -o \"{output_file}\" --encoder {hb_enc} --quality {self.settings.quality}"
+                    self.command_ready.emit(debug_cmd)
+
+                    def progress_cb(prog):
+                        self.progress.emit(prog)
+
+                    def meta_log_cb(msg):
+                        self.metadata_log.emit(msg)
+
+                    result = self._converter.convert(input_file, output_file, self.settings,
                                                      progress_callback=progress_cb, log_callback=meta_log_cb)
                     if result:
                         success += 1
-                        if self.queue_manager:
-                            self.queue_manager.update_job_state(job.id, JobState.COMPLETED)
                         self.file_finished.emit(True, output_file)
                     else:
                         failed += 1
-                        if self.queue_manager:
-                            self.queue_manager.update_job_state(job.id, JobState.FAILED)
                         self.file_finished.emit(False, input_file)
                 except Exception as e:
+                    logger.exception(f"Error converting file {input_file}: {e}")
                     failed += 1
-                    if self.queue_manager:
-                        self.queue_manager.update_job_state(job.id, JobState.FAILED, error_message=str(e))
                     self.error_occurred.emit(str(e))
                     self.file_finished.emit(False, str(e))
 
             self.all_finished.emit(success, failed, total - success - failed)
-            return
-
-        total = len(self.files)
-        success = 0
-        failed = 0
-
-        for idx, input_file in enumerate(self.files):
-            if self._cancel:
-                break
-
-            if self._skip:
-                self._skip = False
-                self.file_finished.emit(False, f"Skipped: {os.path.basename(input_file)}")
-                failed += 1
-                continue
-
-            self.file_started.emit(idx, total, os.path.basename(input_file))
-            output_file = self._resolve_output(input_file)
-
-            # Set per-file subtitles
-            self.settings.external_srt_files = self.file_subtitles.get(input_file, [])
-
-            # Construct command for debug logging
-            debug_cmd = f"HandBrakeCLI -i \"{input_file}\" -o \"{output_file}\" --encoder {self.encoder_manager.to_handbrake_encoder(self.settings.encoder)} --quality {self.settings.quality}"
-            self.command_ready.emit(debug_cmd)
-
-            def progress_cb(prog):
-                self.progress.emit(prog)
-
-            def meta_log_cb(msg):
-                self.metadata_log.emit(msg)
-
-            try:
-                result = self._converter.convert(input_file, output_file, self.settings,
-                                                 progress_callback=progress_cb, log_callback=meta_log_cb)
-                if result:
-                    success += 1
-                    self.file_finished.emit(True, output_file)
-                else:
-                    failed += 1
-                    self.file_finished.emit(False, input_file)
-            except Exception as e:
-                failed += 1
-                self.error_occurred.emit(str(e))
-                self.file_finished.emit(False, str(e))
-
-        self.all_finished.emit(success, failed, total - success - failed)
+        except Exception as e:
+            logger.exception(f"Fatal worker exception in ConversionWorker.run: {e}")
+            self.error_occurred.emit(f"Conversion worker error: {e}")
+            total = len(self.jobs) if self.jobs else len(self.files)
+            self.all_finished.emit(0, total, 0)
 
     def cancel(self):
         self._cancel = True
@@ -938,12 +950,11 @@ class MainWindow(QMainWindow):
         self.log_retention = checked
         self.config.set('general', 'log_retention', checked)
         self.config.save()
-        self.act_log_retention.setText(f"{'✅' if checked else '☐'} Retain Activity Logs")
+        self._log(f"{'Enabled' if checked else 'Disabled'} activity log retention")
 
     def _toggle_auto_update_hb(self, checked):
         self.config.set('general', 'auto_update_handbrake', checked)
         self.config.save()
-        self.act_auto_update_hb.setText(f"{'✅' if checked else '☐'} Auto-Update HandBrakeCLI")
         self._log(f"{'Enabled' if checked else 'Disabled'} auto-update for HandBrakeCLI")
 
     def _toggle_pause_resume(self):
@@ -1093,6 +1104,7 @@ class MainWindow(QMainWindow):
         video_files = [x for x in video_files if not (x in seen or seen.add(x))]
 
         if video_files:
+            start_row = len(self.files)
             self.files.extend(video_files)
             if dropped_folders:
                 # Use parent of first dropped folder to preserve folder name in output
@@ -1108,6 +1120,9 @@ class MainWindow(QMainWindow):
             self._refresh_file_table()
             self._update_status_bar()
             self._log(f"Added {len(video_files)} file(s) via drag-drop")
+            if self.config.get('queue', 'auto_add', False):
+                for row_idx in range(start_row, len(self.files)):
+                    self._add_file_to_queue(row_idx)
 
         if subtitle_files:
             # Link dropped subtitles to selected video file
@@ -1217,18 +1232,17 @@ class MainWindow(QMainWindow):
                 act_theme.setChecked(True)
 
         settings_menu.addSeparator()
-        self.act_log_retention = QAction("☐ Retain Activity Logs", self)
+        self.act_log_retention = QAction("Retain Activity Logs", self)
         self.act_log_retention.setCheckable(True)
         self.act_log_retention.setChecked(self.log_retention)
         self.act_log_retention.triggered.connect(self._toggle_log_retention)
         self.act_log_retention.setToolTip("Keep log entries between sessions for troubleshooting")
         settings_menu.addAction(self.act_log_retention)
 
-        self.act_auto_update_hb = QAction("☐ Auto-Update HandBrakeCLI", self)
+        self.act_auto_update_hb = QAction("Auto-Update HandBrakeCLI", self)
         self.act_auto_update_hb.setCheckable(True)
         hb_auto_update = self.config.get('general', 'auto_update_handbrake', True)
         self.act_auto_update_hb.setChecked(hb_auto_update)
-        self.act_auto_update_hb.setText(f"{'✅' if hb_auto_update else '☐'} Auto-Update HandBrakeCLI")
         self.act_auto_update_hb.triggered.connect(self._toggle_auto_update_hb)
         self.act_auto_update_hb.setToolTip("Automatically check for and install HandBrakeCLI updates on startup")
         settings_menu.addAction(self.act_auto_update_hb)
@@ -1238,23 +1252,30 @@ class MainWindow(QMainWindow):
         settings_menu.addAction(self.act_reset_cols)
 
         settings_menu.addSeparator()
-        self.act_update_check = QAction("✅ Check for Updates on Startup", self)
+        self.act_update_check = QAction("Check for Updates on Startup", self)
         update_enabled = self.config.get('general', 'check_updates', True)
-        self.act_update_check.setChecked(update_enabled)
         self.act_update_check.setCheckable(True)
         self.act_update_check.setChecked(update_enabled)
         self.act_update_check.triggered.connect(self._toggle_update_check)
         settings_menu.addAction(self.act_update_check)
 
-        self.act_auto_tools = QAction("✅ Auto-Update Tools on Startup", self)
+        self.act_auto_tools = QAction("Auto-Update Tools on Startup", self)
         auto_tools = self.config.get('general', 'auto_update_tools', True)
         self.act_auto_tools.setCheckable(True)
         self.act_auto_tools.setChecked(auto_tools)
-        self.act_auto_tools.setText(f"{'✅' if auto_tools else '☐'} Auto-Update Tools on Startup")
         self.act_auto_tools.triggered.connect(self._toggle_auto_tools)
         self.act_auto_tools.setToolTip(
             "On startup, download latest ffmpeg / NVEncC builds automatically")
         settings_menu.addAction(self.act_auto_tools)
+
+        self.act_auto_add_queue = QAction("Auto-Add Files to Conversion Queue", self)
+        auto_add_queue = self.config.get('queue', 'auto_add', False)
+        self.act_auto_add_queue.setCheckable(True)
+        self.act_auto_add_queue.setChecked(auto_add_queue)
+        self.act_auto_add_queue.triggered.connect(self._toggle_auto_add_queue)
+        self.act_auto_add_queue.setToolTip(
+            "Automatically add dropped or loaded files directly to the conversion queue")
+        settings_menu.addAction(self.act_auto_add_queue)
 
         act_tools = QAction("🛠 &Tools & Encoders…", self)
         act_tools.triggered.connect(lambda: self._show_tools_dialog())
@@ -1926,6 +1947,10 @@ class MainWindow(QMainWindow):
         btn_queue_clear.setToolTip("Remove all jobs from the queue")
         btn_queue_clear.clicked.connect(self._clear_queue)
         queue_btn_layout.addWidget(btn_queue_clear)
+        btn_reset = QPushButton("🔄 Reset All")
+        btn_reset.setToolTip("Reset all settings, files list, and conversion queue back to clean defaults")
+        btn_reset.clicked.connect(self._reset_defaults)
+        queue_btn_layout.addWidget(btn_reset)
         queue_btn_layout.addStretch()
         queue_layout.addLayout(queue_btn_layout)
 
@@ -2171,6 +2196,7 @@ class MainWindow(QMainWindow):
         files, _ = QFileDialog.getOpenFileNames(self, "Select video files", initial,
             "Video Files (*.mkv *.mp4 *.avi *.mov *.webm *.wmv *.flv *.m4v *.ts *.m2ts)")
         if files:
+            start_row = len(self.files)
             self.files.extend(files)
             self.source_root = self._compute_source_root()
             self.last_folder = os.path.dirname(files[0])
@@ -2182,6 +2208,9 @@ class MainWindow(QMainWindow):
             self._refresh_file_table()
             self._update_status_bar()
             self._log(f"Added {len(files)} file(s)")
+            if self.config.get('queue', 'auto_add', False):
+                for row_idx in range(start_row, len(self.files)):
+                    self._add_file_to_queue(row_idx)
 
     def _compute_source_root(self):
         if not self.files:
@@ -2208,6 +2237,7 @@ class MainWindow(QMainWindow):
                 videos.extend(base_path.rglob(f"*{ext.upper()}"))
             videos = list(set(str(v) for v in videos))[:500]
             if videos:
+                start_row = len(self.files)
                 self.files.extend(videos)
                 # Auto-match subtitles from this folder
                 matched = self._auto_match_subtitles(videos)
@@ -2223,6 +2253,9 @@ class MainWindow(QMainWindow):
                 self._refresh_file_table()
                 self._update_status_bar()
                 self._log(f"Added {len(videos)} file(s) from folder")
+                if self.config.get('queue', 'auto_add', False):
+                    for row_idx in range(start_row, len(self.files)):
+                        self._add_file_to_queue(row_idx)
                 QMessageBox.information(self, "Files Added", f"Added {len(videos)} video files!")
             else:
                 QMessageBox.information(self, "Info", "No video files found")
@@ -2685,7 +2718,7 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, "Settings", "Current settings saved as defaults!")
 
     def _reset_defaults(self):
-        if QMessageBox.question(self, "Reset", "Reset all settings to defaults?") == QMessageBox.StandardButton.Yes:
+        if QMessageBox.question(self, "Reset All", "Reset all settings, files list, and conversion queue to defaults?") == QMessageBox.StandardButton.Yes:
             self.config.reset_to_defaults()
             self.config.load()
             self.quality = 27
@@ -2695,7 +2728,23 @@ class MainWindow(QMainWindow):
             self.mp4_radio.setChecked(True)
             self.audio_enc_combo.setCurrentText('copy')
             self.audio_bit_combo.setEnabled(False)
-            QMessageBox.information(self, "Settings", "Settings reset to defaults!")
+            self.audio_track_overrides = None
+            if hasattr(self, 'crop_none_radio'):
+                self.crop_none_radio.setChecked(True)
+            if hasattr(self, 'crop_custom_edit'):
+                self.crop_custom_edit.setText('')
+            if hasattr(self, 'bitdepth_check'):
+                self.bitdepth_check.setChecked(True)
+            if hasattr(self, 'output_default_radio'):
+                self.output_default_radio.setChecked(True)
+            if hasattr(self, 'output_dir_edit'):
+                self.output_dir_edit.setText('')
+            self._clear_files()
+            self._clear_queue()
+            self._update_efficiency_hint()
+            self.status_label.setText("Ready — reset all to defaults")
+            self._log("Reset all settings, files, and conversion queue to clean defaults")
+            QMessageBox.information(self, "Reset Complete", "All settings, files list, and conversion queue have been reset to defaults!")
 
     def _start_conversion(self):
         if not self.files:
@@ -2952,10 +3001,30 @@ class MainWindow(QMainWindow):
             self._add_file_to_queue(idx.row())
         QMessageBox.information(self, "Queue", f"Added {len(selected)} file(s) to queue")
 
+    def _resolve_output_for(self, input_path: str, format_str: str = None) -> str:
+        fmt = format_str or self.format
+        if hasattr(self, 'output_custom_radio') and self.output_custom_radio.isChecked() and self.output_dir_edit.text():
+            out_base = self.output_dir_edit.text()
+            preserve = not (hasattr(self, 'flat_output_check') and self.flat_output_check.isChecked())
+            if preserve and getattr(self, 'source_root', None):
+                ip = Path(input_path).resolve()
+                sr = Path(self.source_root).resolve()
+                try:
+                    rel_path = ip.relative_to(sr)
+                except ValueError:
+                    rel_path = Path(ip.name)
+                out_dir = Path(out_base) / rel_path.parent
+                out_dir.mkdir(parents=True, exist_ok=True)
+                return str(out_dir / (ip.stem + f'.{fmt}'))
+            else:
+                os.makedirs(out_base, exist_ok=True)
+                return os.path.join(out_base, Path(input_path).stem + f'.{fmt}')
+        return generate_output_path(input_path, format=fmt, conflict_mode='rename')
+
     def _add_file_to_queue(self, row_idx):
         if 0 <= row_idx < len(self.files):
             input_path = self.files[row_idx]
-            output_path = generate_output_path(input_path, format=self.format, conflict_mode='rename')
+            output_path = self._resolve_output_for(input_path, self.format)
             job = Job(
                 id=f"job_{os.path.basename(input_path)}_{len(self.queue_manager.jobs)}",
                 input_path=input_path,
@@ -3115,12 +3184,17 @@ class MainWindow(QMainWindow):
     def _toggle_update_check(self, checked):
         self.config.set('general', 'check_updates', checked)
         self.config.save()
-        self.act_update_check.setText(f"{'✅' if checked else '☐'} Check for Updates on Startup")
+        self._log(f"{'Enabled' if checked else 'Disabled'} startup update checks")
 
     def _toggle_auto_tools(self, checked):
         self.config.set('general', 'auto_update_tools', checked)
         self.config.save()
-        self.act_auto_tools.setText(f"{'✅' if checked else '☐'} Auto-Update Tools on Startup")
+        self._log(f"{'Enabled' if checked else 'Disabled'} tools auto-update on startup")
+
+    def _toggle_auto_add_queue(self, checked):
+        self.config.set('queue', 'auto_add', checked)
+        self.config.save()
+        self._log(f"{'Enabled' if checked else 'Disabled'} auto-add files to conversion queue")
 
     def _check_tools_startup(self):
         """Background check + auto-update of the encoding tools."""

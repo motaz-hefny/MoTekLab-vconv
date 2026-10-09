@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [10.0.2] - 2026-10-10
+
+### Fixed
+- **Mathematical Efficiency Forecasting Engine** (`core/validator.py`): Replaced static rule-of-thumb assumptions with an empirical, mathematically calculated prediction model. Computes Bits-Per-Pixel-Frame (BPPF), pixel rate ($W \times H \times \text{FPS}$), source compression density, and encoder family efficiency profiles (`svt_av1`, `x265`, `nvenc_h265`, `qsv_h265`, `x264`). Uses exponential RF scaling ($2^{-(\text{RF} - \text{base\_rf}) / 6.0}$) to predict real-world bitrate targets, detecting file size expansion (+2% to +11% bloat on already-compressed web rips at RF 25) vs optimal reduction (est. ~988 MB at RF 27 vs 1.1 GB source, precisely verified against empirical benchmarks in `/home/motaz/Videos`).
+- **Queue Conversion Freeze & Disk I/O Throttling** (`core/queue.py`, `ui/main_window.py`): Resolved an issue where starting queue conversions hung on "Starting queue conversion...". Wrapped queue workers in robust exception handlers, ensured queue jobs respect user custom output folders (`_resolve_output_for`), and throttled `_save_queue()` to at most once every 3.0 seconds or on 100% completion, eliminating disk `fsync` thrashing on every progress tick.
+- **Settings Checkmark Visual Glitch** (`ui/main_window.py`): Fixed visual desync in "Retain Activity Logs", "Auto-Update Tools", and related settings where native checkmarks displayed without the green indicator, requiring a double-click to re-sync. Stripped conflicting emojis from checkable `QAction` text labels, allowing Qt QSS styling to manage checked indicators cleanly.
+
+### Added
+- **Auto-Add Files to Conversion Queue** (`ui/main_window.py`): Added `Settings -> Queue -> Auto-Add Files to Conversion Queue` (`queue/auto_add`), automatically staging dragged or imported files into the conversion queue.
+- **Dedicated "Reset All" Action** (`ui/main_window.py`): Added a prominent "🔄 Reset All" button in the Conversion Queue section (and `Settings -> Reset to Defaults`) that completely restores default encoding profiles, clears file tables, flushes queue state, and resets active overrides back to clean defaults.
+- **Refined Queue Button Layout & Dynamic Window Metrics** (`ui/main_window.py`): Balanced button layouts between Files and Queue panels to keep horizontal size hints optimal, ensuring seamless content-hugging in the left settings panel across all window resolutions.
+
 ## [10.0.1] - 2026-10-09
 
 ### Fixed

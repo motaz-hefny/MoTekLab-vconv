@@ -162,7 +162,7 @@ def test_validator_and_efficiency_notice_mp4():
     # get_efficiency_feedback returns optimal status and clear projection
     fb = val.get_efficiency_feedback("/path/movie.mp4", mp4_info, quality=24, audio_encoder='copy', encoder='x265')
     check("Efficiency feedback status is optimal", fb['status'] == 'optimal')
-    check("Efficiency feedback provides projection", "projected to achieve ~30–50%" in fb['message'])
+    check("Efficiency feedback provides projection", "projected to achieve ~" in fb['message'] and "reduction" in fb['message'])
 
 
 def test_ui_validate_and_analyze_mp4_parity():

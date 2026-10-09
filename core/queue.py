@@ -52,6 +52,7 @@ class QueueManager:
         self.queue_file = os.path.join(config_dir, "queue.json")
         self.jobs: List[Job] = []
         self._lock = threading.Lock()
+        self._last_progress_save = 0.0
         self._load_queue()
 
     def add_job(self, job: Job) -> str:
@@ -143,7 +144,10 @@ class QueueManager:
         job = self.get_job(job_id)
         if job:
             job.progress = progress
-            self._save_queue()
+            now = datetime.now().timestamp()
+            if now - self._last_progress_save >= 3.0 or progress >= 100.0:
+                self._last_progress_save = now
+                self._save_queue()
 
     def _save_queue(self):
         try:
