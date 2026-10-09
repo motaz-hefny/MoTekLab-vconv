@@ -197,7 +197,7 @@ vconv does NOT overwrite files. If `output.mp4` exists, it creates `output_1.mp4
 
 ## Encoder Settings
 
-The left settings panel is organized into three tabs: **Video** (preset, encoder, crop & color, quality, output, format), **Audio**, and **Subtitles**.
+The left settings panel is organized into three tabs: **Video** (preset, encoder, crop & color, quality, output, format), **Audio**, and **Subtitles**. The panel also sizes itself to the active tab — it shrinks on Audio, grows on Subtitles, and never clips; drag the divider to pin a width (a pinned width stays until you restart vconv).
 
 ### Available Encoders (v9.7.0)
 

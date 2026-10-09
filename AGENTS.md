@@ -147,6 +147,15 @@ The 1250×800 default / 1100×700 minimum were too big for small laptops (up to 
 - **Settings panel = tabs inside a `QScrollArea`** (`_create_central_widget`, `self.settings_scroll`): the panel's `self.settings_tabs` is a `QTabWidget` with **Video | Audio | Subtitles** pages (Video: Preset→Encoder→Crop→Quality→Output→Format, metadata checkbox inside Output). Never remove the scroll area — the Video page is taller than small windows. `self.settings_tabs` and `self.sub_group` are exposed for `tests/test_layout_dynamic.py` (the no-squash test switches to the Subtitles tab before measuring).
 - **Activity Log has no height cap**: `log_group` sits in `self.log_splitter` (vertical, `setChildrenCollapsible(False)`, default ≈200 px, stretch only to the upper sections). Do not re-add `setMaximumHeight` on `self.log_text`.
 
+## Dynamic Settings Width Pattern (H/F/M)
+The left settings panel hugs the active tab instead of sitting at fixed 300 px (spec `docs/superpowers/specs/2026-10-08-dynamic-settings-width-design.md`; tests `tests/test_settings_width_dynamic.py`). Three values, recomputed per event, never cached, never persisted:
+- **H** = `settings_tabs.sizeHint().width()` (hug target) · **F** = `settings_tabs.minimumSizeHint().width()` (drag floor, installed via `settings_scroll.setMinimumWidth(F)`) · **W** = `splitter.sizes()[0]` · **M** = `self._manual_width` (session-only).
+- Pure helper `MainWindow._left_width_action(current, hug, floor, manual)` returns the new width or `None` — ALL event logic lives there (truth table unit-tested; same pattern as `_screen_window_bounds`). Never branch on width outside it.
+- **`settings_tabs` MUST be a `_HugTabWidget` (module-level subclass), not a plain `QTabWidget`.** Qt 6.11's `QTabWidget.sizeHint()` AND `minimumSizeHint()` expand over ALL tab pages (`qtabwidget.cpp`), so a plain widget can never hug the active tab. `_HugTabWidget` overrides both to hug the current page (recomputing Qt's padding, tab-bar floor preserved, `currentChanged → updateGeometry`). Measured offscreen: Video H/F 239/239, Audio 190/172, Subtitles 284/237.
+- Wiring in `_create_central_widget`: `settings_tabs.currentChanged` → `_apply_width()`; `splitter.splitterMoved` → `M=True` guarded by `_width_applying` (programmatic hugs must never mark manual); startup `QTimer.singleShot(0, _apply_initial_width)`. Floor is clamped to `splitter width − right-panel minimum` in `_current_width_params`.
+- Reflow keeps F small: every settings-panel `QComboBox` is `Ignored` horizontally (loop right BEFORE the wheel-guard loop in `_create_left_panel` — wheel-guard stays last); `ext_opts_layout` must stay its own row in `sub_layout` (never re-nested in `ext_btn_layout`); long non-wrappable copy (radios/checkboxes) goes: short visible text + full text in tooltip.
+- Window resize keeps stretch 0/1; width/M are session-only (no config keys).
+
 ## Encoder Capability Engine (v9.7.0)
 `core/encoder.py` is a runtime-probed capability engine, not a hardcoded map.
 - `probe_handbrake_encoders()` parses `HandBrakeCLI --help` encoder list (cached) → `HB_FAMILY_IDS[family] = (8bit_id, 10bit_id)` → `get_available_encoders()`.
