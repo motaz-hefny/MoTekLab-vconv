@@ -46,9 +46,9 @@ def install_system():
         print(f"   ✅ Created: {INSTALL_DIR}/{CLI_NAME}")
         print(f"   ✅ Added to PATH - you can run '{CLI_NAME}' from anywhere")
     except FileExistsError:
-        print(f"   ⚠️  Already exists: {INSTALL_DIR}/{APP_NAME}")
+        print(f"   ⚠️  Already exists: {INSTALL_DIR}/{CLI_NAME}")
     except PermissionError:
-        print(f"   ❌ Need sudo: sudo ln -s {install_path}/{SCRIPT_NAME} {INSTALL_DIR}/{APP_NAME}")
+        print(f"   ❌ Need sudo: sudo ln -s {install_path}/{SCRIPT_NAME} {INSTALL_DIR}/{CLI_NAME}")
 
     # 2. Install desktop entry
     print("\n[2/3] Creating start menu entry...")
@@ -94,7 +94,7 @@ def uninstall():
     print("=" * 50)
 
     # Remove symlink
-    symlink_path = os.path.join(INSTALL_DIR, APP_NAME)
+    symlink_path = os.path.join(INSTALL_DIR, CLI_NAME)
     if os.path.islink(symlink_path):
         os.unlink(symlink_path)
         print(f"✅ Removed: {symlink_path}")
@@ -123,9 +123,9 @@ def quick_install():
 
     # Symlink to /usr/local/bin
     try:
-        if not os.path.exists(os.path.join(INSTALL_DIR, APP_NAME)):
-            os.symlink(os.path.join(install_path, SCRIPT_NAME), os.path.join(INSTALL_DIR, APP_NAME))
-            print(f"✅ Added to PATH: {INSTALL_DIR}/{APP_NAME}")
+        if not os.path.exists(os.path.join(INSTALL_DIR, CLI_NAME)):
+            os.symlink(os.path.join(install_path, SCRIPT_NAME), os.path.join(INSTALL_DIR, CLI_NAME))
+            print(f"✅ Added to PATH: {INSTALL_DIR}/{CLI_NAME}")
     except PermissionError:
         pass
 

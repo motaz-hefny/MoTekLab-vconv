@@ -11,8 +11,9 @@ from typing import Optional
 from pathlib import Path
 
 from core.constants import VIDEO_EXTENSIONS
+from utils.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger("validator")
 
 
 class ValidationStatus:
@@ -127,13 +128,14 @@ class FileValidator:
 
         return result
 
-    def validate_batch(self, files: list[tuple], output_dir: str = None) -> list[ValidationResult]:
+    def validate_batch(self, files: list[tuple], output_dir: str = None, format: str = "mp4") -> list[ValidationResult]:
         """
         Validate multiple files for batch processing.
 
         Args:
             files: List of (input_path, output_path) tuples
             output_dir: Default output directory (optional)
+            format: Output format ('mp4', 'mkv', default: 'mp4')
 
         Returns:
             List of ValidationResult
@@ -143,7 +145,7 @@ class FileValidator:
         for input_path, output_path in files:
             if output_path is None and output_dir:
                 # Generate default output path
-                filename = Path(input_path).stem + ".mp4"
+                filename = Path(input_path).stem + f".{format}"
                 output_path = os.path.join(output_dir, filename)
 
             result = self.validate_file(input_path, output_path)
@@ -177,6 +179,41 @@ class FileValidator:
                 conflicts['other_errors'].append(result)
 
         return conflicts
+
+    def check_efficiency(self, file_path: str, media_info: dict, quality: int, audio_encoder: str = "copy") -> list[str]:
+        """
+        Check if current settings might lead to file bloat (output larger than input).
+        Returns a list of warning/recommendation strings.
+        """
+        warnings = []
+        if not media_info:
+            return warnings
+
+        v_codec = str(media_info.get('video', media_info.get('video_codec', ''))).upper()
+        is_already_hevc = any(c in v_codec for c in ('HEVC', 'H.265', 'AV1', 'VP9'))
+        v_bitrate_str = str(media_info.get('video_bitrate', '')).lower()
+
+        if is_already_hevc and quality <= 28:
+            codec_name = "HEVC" if ("HEVC" in v_codec or "H.265" in v_codec) else ("AV1" if "AV1" in v_codec else "compressed")
+            br_info = f" ({v_bitrate_str})" if v_bitrate_str else ""
+            warnings.append(
+                f"Source video is already {codec_name}{br_info}. "
+                f"Re-encoding at RF {quality} will likely INCREASE file size. "
+                f"Recommended: Use RF 30+ or preserve the original video."
+            )
+
+        a_codec = str(media_info.get('audio', media_info.get('audio_codec', ''))).upper()
+        a_br = str(media_info.get('audio_bitrate', '')).lower()
+        if audio_encoder == 'copy':
+            is_heavy_audio = any(k in a_br for k in ('768', '1509', '640', '448')) or any(k in a_codec for k in ('DTS', 'TRUEHD', 'EAC3'))
+            if is_heavy_audio:
+                warnings.append(
+                    f"Audio track is high-bitrate ({a_codec} {a_br}). "
+                    f"Using 'copy' leaves audio uncompressed. "
+                    f"Converting to AAC or Opus (128-160 kbps) will save hundreds of MB."
+                )
+
+        return warnings
 
 
 # Utility functions

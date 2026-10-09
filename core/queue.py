@@ -148,9 +148,21 @@ class QueueManager:
     def _save_queue(self):
         try:
             os.makedirs(self.config_dir, exist_ok=True)
+            try:
+                os.chmod(self.config_dir, 0o700)
+            except OSError:
+                pass
             data = {'jobs': [j.to_dict() for j in self.jobs], 'saved_at': datetime.now().isoformat()}
-            with open(self.queue_file, 'w') as f:
+            tmp_file = f"{self.queue_file}.tmp.{os.getpid()}"
+            with open(tmp_file, 'w') as f:
                 json.dump(data, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            try:
+                os.chmod(tmp_file, 0o600)
+            except OSError:
+                pass
+            os.replace(tmp_file, self.queue_file)
         except Exception as e:
             logger.error(f"Failed to save queue: {e}")
 

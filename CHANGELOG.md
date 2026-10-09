@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [10.0.0] - 2026-10-09
+
+### Security & Hardening
+- **Memory-Safe MP4 Atom Surgery ($O(1)$ RAM)** (`core/converter.py`): Rewrote `_binary_replace_ilst`, `_inject_ilst`, and `_apply_faststart` to use streaming and in-place chunk updates instead of reading multi-gigabyte video files entirely into RAM (`f.read()`). Large 4K/UHD files (10GB–50GB+) no longer trigger Linux OOM Killer. Added full 64-bit MP4 atom size parsing (`sz == 1` and `sz == 0` EOF support) and atomic temporary file swapping (`os.replace`) to prevent corruption during sudden power outages or aborts.
+- **Queue and Config Hardening & Privacy** (`core/queue.py`, `utils/config.py`, `utils/logging.py`, `utils/updater.py`): Config directory `~/.config/vconv` permissions strictly enforced to `0700` and config/queue files to `0600` (protecting private paths, file logs, and media history from other local users). `Config.save()`, `QueueManager._save_queue()`, and update cache writes now use atomic `.tmp.<pid>` files with `fsync` and `os.replace` to eliminate race conditions and zero-byte file truncation.
+- **Self-Update Security Hardening** (`utils/self_update.py`): Replaced predictable, shared `/tmp/<asset>` paths with private `tempfile.mkdtemp(prefix="vconv_update_")` (mode `0700`). In `install_deb`, added pre-installation inspection using `dpkg-deb -f <path> Package` to verify package identity before prompting for elevated privileges via `pkexec`.
+- **Eliminated Dead & Vulnerable Code** (`utils/tools.py`): Deleted dead `install_via_system` method that utilized `shell=True` and `sudo`.
+- **Unified Subsystem Logging** (`utils/logging.py`, `core/converter.py`, `core/validator.py`): Fixed logger inheritance so that all converter execution strings, ffprobe stream stats, and conversion outcomes are written directly to `~/.config/vconv/logs/vconv.log`.
+
+### Added
+- **Top-Right 1-Click Theme Toggle Button** (`ui/main_window.py`, `ui/theme.py`): Added a theme switch button pinned to the far right of the top toolbar. Displays `☀️` in Dark Mode and `🌙` in Light Mode with tooltips, allowing seamless 1-click toggling between Fahhim Crimson Dark and Fahhim Rosé Light.
+- **Researched Optimal Quality/Size Video Presets** (`presets/default_presets.json`, `ui/main_window.py`, `vconv.py`): Introduced modern presets engineered for maximum compression and pristine fidelity:
+  - `av1_efficient`: Modern SVT-AV1 10-bit (RF 27, Speed 6) achieving 25–35% smaller file size than HEVC with zero color banding.
+  - `hevc_optimal`: Film-tuned x265 10-bit (RF 25, Medium) with `no-sao=1` (eliminates waxy faces) and `aq-mode=3` (eliminates dark scene posterization and banding).
+  - `nvenc_optimal`: NVIDIA GPU hardware accelerated encoding (RF 25) for high-speed conversions.
+- **Full In-App Command Line Interface (CLI) Reference Dialog** (`ui/main_window.py`): Added `Help -> 💻 Command Line (CLI) Reference` dialog showcasing headless batch syntax, common flags, and practical server automation examples.
+- **Headless CLI Preset Parity** (`vconv.py`): Updated `vconv.py` to support `--preset` for headless batch encoding directly from `presets/default_presets.json`, with enhanced `--help` documentation.
+- **Pre-Flight Smart Efficiency Guard & Bloat Prevention** (`core/validator.py`, `ui/main_window.py`): Added automated stream bitrate inspection. If a loaded video is already heavily compressed HEVC/AV1 and current settings use RF $\le 28$, a live notice dynamically appears below the RF slider advising higher RF (e.g. 30+) to avoid file expansion. Additionally flags heavy copied audio (e.g. EAC3 768k or DTS) with recommendations to convert to AAC/Opus to save hundreds of megabytes.
+- **Pre-Encode Validation Optimization Advice** (`ui/main_window.py`, `core/validator.py`): The `Validate` toolbar button now audits compression efficiency alongside file integrity and disk space, alerting users prior to batch encoding.
+- **Post-Conversion Size Delta & Bloat Status Tracking** (`ui/main_window.py`): The Files table status column now records the exact file size difference (`⚠️ +106MB (+16%)` or `✅ -320MB (-45%)`) with comprehensive hover tooltips and warnings in the Activity Log.
+
+- **Lossless Video Stream Copy (Passthrough)** (`core/encoder.py`, `core/converter.py`, `ui/main_window.py`, `vconv.py`): Added instantaneous lossless video passthrough mode utilizing the FFmpeg backend (`ffmpeg -c:v copy`). Enables lossless container remuxing (MKV ↔ MP4) and audio-only transcoding without re-encoding video frames. In the GUI, selecting Copy automatically disables the RF slider (`RF: N/A (Lossless Copy)`) and displays a `⚡ Passthrough Active` badge. Supported in CLI via `--encoder copy`.
+- **Enriched Media Telemetry & Bitrate Analysis** (`core/analyzer.py`, `ui/main_window.py`, `vconv.py`): Upgraded media inspector to extract container-level overall bitrates, video stream bitrates, container `BPS` tags, framerate, bit depth (8-bit/10-bit), audio sample rates (e.g. 48 kHz), and subtitle codecs. Analysis displays structured, theme-aware telemetry cards in the GUI (`Analyze` button) and detailed breakdowns in headless CLI (`vconv -a / --analyze`).
+- **Dedicated Themed Validation Modal** (`ui/main_window.py`): Replaced basic popups with a dedicated, theme-consistent scrollable report modal in `Validate`, cleanly displaying file integrity warnings, disk space requirements, and bloat warnings with color-coded badges in both light and dark themes.
+
+### Fixed
+- **Modal Dialog Background and Text Contrast in Light Theme** (`ui/theme.py`): Repositioned `QWidget { background: transparent; }` prior to `QDialog` and `QMessageBox` rules in generated QSS stylesheet, ensuring `apply_theme` and `build_palette` properly cascade to child dialogs and eliminating transparent backgrounds or unreadable contrast glitches in Rosé Light mode.
+- **Light Theme QGroupBox Title Masking Glitch** (`ui/theme.py`, `ui/main_window.py`): Fixed the visual defect where `Files to Convert`, `Conversion Queue`, `Progress`, and `Activity Log` titles in the light theme were partially covered by a dark line or translucent window margin. Applied card background fill and opaque surface rules.
+- **CLI Options Overwriting Saved Defaults** (`vconv.py`): CLI flags (`--encoder`, `--quality`, `--format`, `--audio-encoder`, `--audio-bitrate`) default to `None` instead of hardcoded values, ensuring saved config preferences are never clobbered when running `vconv` without explicit arguments.
+- **Queue Job Settings Isolation & Non-Clobbering Execution** (`ui/main_window.py`): Queue execution (`_start_queue`) no longer wipes out the Files table (`self.files`). Individual job settings (encoder, quality, audio bitrate, crop mode, custom output paths) saved when each item was queued are strictly honored during batch processing instead of being overwritten by currently active UI widgets.
+- **Background Media Analysis & UI Unfreezing** (`ui/main_window.py`): Replaced synchronous UI-thread ffprobe batch analysis with non-blocking background worker `BatchAnalyzeWorker(QThread)`. Dragging or loading large folders (up to 500 files) no longer freezes the user interface.
+- **UI & Accessibility Fixes** (`ui/main_window.py`, `ui/theme.py`, `setup.py`):
+  - Fixed group box title from `"Crop & Color (v9.7)"` to `"Cropping & Color"`.
+  - Wrapped SVT-AV1 speed options and toggle visibility dynamically only when an AV1 encoder is chosen.
+  - Adjusted default `file_table` column widths to prevent header clipping and ellipsis truncation.
+  - Formatted ffmpeg version output as clean string `6.1.1` instead of Python tuple `(6, 1, 1)`.
+  - Improved light theme info text color to `#0369a1` to achieve full WCAG AA contrast compliance (>5.5:1).
+  - Preserved application font family and weight on the toolbar Convert button.
+  - Fixed symlink naming bug in `setup.py` (`APP_NAME` -> `CLI_NAME`).
+  - Added `format` parameter support to `FileValidator.validate_batch`.
+
 ## [9.8.0] - 2026-10-09
 
 ### Fixed

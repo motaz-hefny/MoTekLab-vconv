@@ -118,6 +118,20 @@ def install_deb(deb_path: Path) -> tuple[bool, str]:
     if not pkexec:
         return (False, "pkexec is not available — install manually: download the "
                        ".deb and run `sudo dpkg -i`.")
+
+    dpkg_deb = shutil.which('dpkg-deb')
+    if dpkg_deb:
+        try:
+            inspect_proc = subprocess.run(
+                [dpkg_deb, '-f', str(deb_path), 'Package'],
+                capture_output=True, text=True, timeout=10
+            )
+            pkg_name = inspect_proc.stdout.strip()
+            if inspect_proc.returncode == 0 and pkg_name and pkg_name != 'vconv':
+                return (False, f"Package validation failed: expected 'vconv', got '{pkg_name}'")
+        except Exception as e:
+            logger.warning("Could not verify package with dpkg-deb: %s", e)
+
     proc = subprocess.run(
         [pkexec, 'dpkg', '-i', str(deb_path)],
         capture_output=True, text=True
@@ -162,7 +176,12 @@ def install_update(assets: dict, mode: str,
         return {'success': False, 'mode': mode, 'relaunch': False,
                 'message': 'No installable asset for this installation type.'}
 
-    dest = Path(tempfile.gettempdir()) / url.rsplit('/', 1)[-1]
+    tmp_dir = tempfile.mkdtemp(prefix="vconv_update_")
+    try:
+        os.chmod(tmp_dir, 0o700)
+    except OSError:
+        pass
+    dest = Path(tmp_dir) / url.rsplit('/', 1)[-1]
     try:
         if status_cb:
             status_cb("Downloading update…")
@@ -174,10 +193,6 @@ def install_update(assets: dict, mode: str,
             ok, msg = install_deb(dest)
             if not ok:
                 return {'success': False, 'mode': mode, 'relaunch': False, 'message': msg}
-            try:
-                dest.unlink()
-            except OSError:
-                pass
             return {'success': True, 'mode': mode, 'relaunch': True,
                     'message': f"Update installed in place.{' ' + msg if msg else ''}"}
 
@@ -194,6 +209,8 @@ def install_update(assets: dict, mode: str,
         logger.warning("self-update failed: %s", e, exc_info=True)
         return {'success': False, 'mode': mode, 'relaunch': False,
                 'message': f"{type(e).__name__}: {e}"}
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
     return {'success': False, 'mode': mode, 'relaunch': False,
             'message': 'Unhandled installation mode.'}

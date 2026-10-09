@@ -23,6 +23,8 @@ class MediaInfo:
     filepath: str
     filesize: str
     duration: Optional[str] = None
+    container_format: Optional[str] = None
+    overall_bitrate: Optional[str] = None
     video_codec: Optional[str] = None
     video_bitrate: Optional[str] = None
     width: Optional[int] = None
@@ -33,6 +35,7 @@ class MediaInfo:
     audio_codec: Optional[str] = None
     audio_bitrate: Optional[str] = None
     audio_channels: Optional[str] = None
+    audio_samplerate: Optional[str] = None
     audio_streams: list = None
     subtitle_streams: list = None
 
@@ -132,14 +135,16 @@ class MediaAnalyzer:
             filesize=filesize
         )
 
-        # Format info (duration, bitrate)
+        # Format info (container format, duration, overall bitrate)
         fmt_bitrate_fallback = None
         if 'format' in data:
             fmt = data['format']
+            if 'format_name' in fmt:
+                info.container_format = fmt['format_name'].upper()
             if 'duration' in fmt:
                 info.duration = self._format_duration(float(fmt['duration']))
             if 'bit_rate' in fmt:
-                info.video_bitrate = self._format_bitrate(int(fmt['bit_rate']))
+                info.overall_bitrate = self._format_bitrate(int(fmt['bit_rate']))
                 fmt_bitrate_fallback = int(fmt['bit_rate'])
 
         # Stream info
@@ -164,6 +169,28 @@ class MediaAnalyzer:
                 info.width = stream.get('width')
                 info.height = stream.get('height')
 
+                # Video bitrate from stream properties or container tags (e.g. MKV BPS)
+                v_bitrate = None
+                if stream.get('bit_rate'):
+                    try:
+                        v_bitrate = self._format_bitrate(int(stream['bit_rate']))
+                    except (ValueError, TypeError):
+                        pass
+                if not v_bitrate:
+                    tags = stream.get('tags', {}) or {}
+                    bps = tags.get('BPS') or tags.get('BPS-eng') or next(
+                        (v for k, v in tags.items() if k.upper().startswith('BPS')), None
+                    )
+                    if bps:
+                        try:
+                            v_bitrate = self._format_bitrate(int(bps))
+                        except (ValueError, TypeError):
+                            pass
+                if v_bitrate:
+                    info.video_bitrate = v_bitrate
+                elif fmt_bitrate_fallback:
+                    info.video_bitrate = f"≈{self._format_bitrate(fmt_bitrate_fallback)} (total)"
+
                 # Pixel format / color bit depth (yuv420p10le -> 10-bit)
                 info.pix_fmt = stream.get('pix_fmt')
                 info.bit_depth = self._parse_bit_depth(info.pix_fmt)
@@ -184,7 +211,7 @@ class MediaAnalyzer:
                 if 'bit_rate' in stream:
                     a_bitrate = self._format_bitrate(int(stream['bit_rate']))
                 else:
-                    tags = stream.get('tags', {})
+                    tags = stream.get('tags', {}) or {}
                     bps = tags.get('BPS') or tags.get('BPS-eng') or next(
                         (v for k, v in tags.items() if k.upper().startswith('BPS')), None
                     )
@@ -197,13 +224,23 @@ class MediaAnalyzer:
                 if channels:
                     ch_layout = stream.get('channel_layout', 'unknown')
                     a_channels = f"{channels}ch ({ch_layout})"
-                a_lang = stream.get('tags', {}).get('language', 'unknown')
-                a_title = stream.get('tags', {}).get('title', '')
+                sample_rate = stream.get('sample_rate')
+                a_sample_rate = None
+                if sample_rate:
+                    try:
+                        sr_val = int(sample_rate)
+                        sr_khz = sr_val / 1000.0
+                        a_sample_rate = f"{sr_khz:.1f} kHz" if sr_val % 1000 != 0 else f"{int(sr_khz)} kHz"
+                    except (ValueError, TypeError):
+                        a_sample_rate = f"{sample_rate} Hz"
+                a_lang = stream.get('tags', {}).get('language', 'unknown') if stream.get('tags') else 'unknown'
+                a_title = stream.get('tags', {}).get('title', '') if stream.get('tags') else ''
                 audio_streams.append({
                     'index': stream.get('index'),
                     'codec': a_codec,
                     'bitrate': a_bitrate,
                     'channels': a_channels,
+                    'sample_rate': a_sample_rate,
                     'language': a_lang,
                     'title': a_title
                 })
@@ -212,12 +249,15 @@ class MediaAnalyzer:
                     info.audio_codec = a_codec
                     info.audio_bitrate = a_bitrate
                     info.audio_channels = a_channels
+                    info.audio_samplerate = a_sample_rate
 
             elif codec_type == 'subtitle':
-                lang = stream.get('tags', {}).get('language', 'unknown')
-                title = stream.get('tags', {}).get('title', f'Stream {len(subtitle_streams) + 1}')
+                s_codec = stream.get('codec_name', '').upper()
+                lang = stream.get('tags', {}).get('language', 'unknown') if stream.get('tags') else 'unknown'
+                title = stream.get('tags', {}).get('title', f'Stream {len(subtitle_streams) + 1}') if stream.get('tags') else f'Stream {len(subtitle_streams) + 1}'
                 subtitle_streams.append({
                     'index': stream.get('index'),
+                    'codec': s_codec,
                     'language': lang,
                     'title': title
                 })

@@ -157,38 +157,6 @@ class DependencyChecker:
         }
         return commands.get(pkg_mgr, f'Unknown package manager: {pkg_mgr}')
 
-    def install_via_system(self, package: str) -> bool:
-        """Install package using system package manager."""
-        pkg_mgr = self._detect_package_manager()
-        if not pkg_mgr:
-            logger.error("No package manager detected")
-            return False
-
-        cmd = self._get_system_install_command(pkg_mgr, package)
-
-        try:
-            logger.info(f"Installing: {package}")
-            result = subprocess.run(
-                cmd,
-                shell=True,
-                capture_output=True,
-                text=True,
-                timeout=300  # 5 minutes timeout
-            )
-
-            if result.returncode == 0:
-                logger.info(f"Successfully installed: {package}")
-                return True
-            else:
-                logger.error(f"Installation failed: {result.stderr}")
-                return False
-
-        except subprocess.TimeoutExpired:
-            logger.error("Installation timed out")
-            return False
-        except Exception as e:
-            logger.error(f"Installation error: {e}")
-            return False
 
     def verify_installation(self, command: str) -> bool:
         """Verify a command is now available."""

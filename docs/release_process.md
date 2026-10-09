@@ -141,6 +141,26 @@ gh release upload vX.Y.Z dist/vconv-X.Y.Z-x86_64.AppImage
 
 After uploads, verify at: https://github.com/motaz-hefny/MoTekLab-vconv/releases
 
+### 7. Public Release Communication (Forum & Blog)
+
+**Strict Order: Forum First, Blog Second.**
+
+#### 7.1. Detailed Forum Post (First)
+- **Destination**: MoTekLab Community Forum (`forum.moteklab.com`), proper category (e.g. *Releases / Video Converter*).
+- **Format & Content**:
+  - Full title: `MoTekLab Video Encoder vX.Y.Z Released — [Key Highlights]`
+  - Detailed release notes broken down by category (Core Engine, UI/UX, Performance, Fixes).
+  - **Comprehensive historical version segmentation**: Clearly delineate which features/bug fixes landed in which version, minor version, or patch update (e.g., `v9.8.0`, `v9.7.5`, `v9.7.2`, etc.).
+  - Technical context, caveats, configuration notes, and direct download links (GitHub release assets & apt commands).
+  - Open thread for community feedback and issue reports.
+
+#### 7.2. High-Level Blog Post (Second)
+- **Destination**: MoTekLab Blog (`moteklab.com` repository: `content/blog/vconv-X-Y-launch.mdx`).
+- **Format & Content**:
+  - Concise **2 to 3 paragraphs** only.
+  - Highlights the most exciting user-facing improvements and performance gains.
+  - Concludes with a prominent call-to-action button or link pointing directly to the **detailed Forum announcement** for full technical changelogs, discussion, and download links.
+
 ---
 
 ## Practical build notes (2026-10-08, v9.7.1/v9.7.2)

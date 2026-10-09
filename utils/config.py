@@ -64,6 +64,10 @@ class Config:
         if config_path is None:
             config_dir = Path.home() / ".config" / "vconv"
             config_dir.mkdir(parents=True, exist_ok=True)
+            try:
+                os.chmod(config_dir, 0o700)
+            except OSError:
+                pass
             config_path = str(config_dir / "vconv.conf")
 
         self.config_path = config_path
@@ -99,15 +103,27 @@ class Config:
             return False
 
     def save(self) -> bool:
-        """Save configuration to file."""
+        """Save configuration to file atomically with safe permissions."""
         try:
-            # Ensure directory exists
             config_dir = Path(self.config_path).parent
             config_dir.mkdir(parents=True, exist_ok=True)
+            try:
+                os.chmod(config_dir, 0o700)
+            except OSError:
+                pass
 
-            with open(self.config_path, 'w', encoding='utf-8') as f:
+            tmp_path = str(self.config_path) + f".tmp.{os.getpid()}"
+            with open(tmp_path, 'w', encoding='utf-8') as f:
                 json.dump(self.config, f, indent=2, ensure_ascii=False)
+                f.flush()
+                os.fsync(f.fileno())
 
+            try:
+                os.chmod(tmp_path, 0o600)
+            except OSError:
+                pass
+
+            os.replace(tmp_path, self.config_path)
             logger.info(f"Configuration saved to: {self.config_path}")
             return True
         except Exception as e:

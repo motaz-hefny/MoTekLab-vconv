@@ -15,7 +15,9 @@ from dataclasses import dataclass
 from typing import Optional, Callable
 from pathlib import Path
 
-logger = logging.getLogger(__name__)
+from utils.logging import get_logger
+
+logger = get_logger("converter")
 
 @dataclass
 class ConversionSettings:
@@ -190,19 +192,21 @@ class Converter:
                 return False
             if exit_code != 0:
                 err_lines = ''.join(self._output_buffer[-100:])
-                self.last_error = f"HandBrakeCLI exit code {exit_code}"
+                self.last_error = f"Conversion process exit code {exit_code}"
                 if self._command_string:
                     self.last_error += f"\nCommand: {self._command_string[:500]}"
                 if err_lines:
                     self.last_error += f"\nOutput:\n{err_lines[:3000]}"
                 logger.error(self.last_error)
                 return False
+            if progress_callback:
+                progress_callback(ConversionProgress(percent=100.0, fps=0.0))
             self.last_error = ""
             logger.info(f"Completed: {output_path}")
-            # Log HandBrakeCLI output on success for debugging
+            # Log output on success for debugging
             output_summary = ''.join(self._output_buffer[-50:]).strip()
             if output_summary:
-                logger.info(f"HandBrakeCLI output:\n{output_summary[:2000]}")
+                logger.info(f"Process output:\n{output_summary[:2000]}")
             # Verify output file was actually created
             if not os.path.exists(output_path):
                 logger.warning(f"Output file does not exist after successful conversion: {output_path}")
@@ -216,11 +220,11 @@ class Converter:
                 self.last_error = f"Output file is empty (0 bytes): {output_path}"
                 return False
             logger.info(f"Output file size: {file_size} bytes")
-            # Preserve source metadata via ffmpeg (fallback when HB's own flag isn't available)
+            # Preserve source metadata via ffmpeg (for HandBrake runs when HB's own flag isn't available)
             custom_path = os.environ.get('PATH', '') + os.pathsep + '/usr/local/bin' + os.pathsep + os.path.expanduser('~/.local/bin')
             ffmpeg_bin = shutil.which('ffmpeg', path=custom_path)
             ffprobe_bin = shutil.which('ffprobe', path=custom_path) or ffmpeg_bin
-            if settings.metadata_preserve and not settings.metadata_preserve_flag and ffmpeg_bin and settings.output_format in ('mp4', 'mkv'):
+            if settings.encoder != 'copy' and settings.metadata_preserve and not settings.metadata_preserve_flag and ffmpeg_bin and settings.output_format in ('mp4', 'mkv'):
                 # Brief pause to let OS file locks clear from HandBrakeCLI
                 time.sleep(1.5)
                 self._copy_metadata(input_path, output_path, settings.output_format, ffmpeg_bin, log_callback, ffprobe_bin)
@@ -291,32 +295,51 @@ class Converter:
                 return {}
 
         # ──────────────────────────────────────────────────
-        # Binary ilst replacement helpers
+        # Binary ilst replacement helpers (Memory-safe O(1) RAM)
         # ──────────────────────────────────────────────────
         def _read_bytes(path):
             with open(path, 'rb') as f:
                 return f.read()
 
         def _write_bytes(path, data):
-            with open(path, 'wb') as f:
+            tmp = str(path) + f".tmp.{os.getpid()}"
+            with open(tmp, 'wb') as f:
                 f.write(data)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, path)
 
         def _find_atom(data, parent_off, parent_sz, atype, skip=8):
-            """Find child atom of given type within parent. skip=bytes before child list."""
+            """Find child atom of given type within parent. skip=bytes before child list.
+            Supports 64-bit atom sizes (sz == 1) and end-of-file/parent atoms (sz == 0)."""
             off = parent_off + skip
             end = parent_off + parent_sz
             while off + 8 <= end and off + 8 <= len(data):
                 sz = struct.unpack('>I', data[off:off+4])[0]
-                if sz == 0:
+                hdr_len = 8
+                if sz == 1:
+                    if off + 16 > end or off + 16 > len(data):
+                        break
+                    actual = struct.unpack('>Q', data[off+8:off+16])[0]
+                    hdr_len = 16
+                elif sz == 0:
+                    actual = end - off
+                else:
+                    actual = int(sz)
+                if actual < hdr_len:
                     break
                 if data[off+4:off+8] == atype:
-                    return (off, int(sz))
-                off += int(sz)
+                    return (off, int(actual))
+                off += int(actual)
             return (None, None)
 
         def _find_ilst_in(data):
-            """Return (ilst_offset, ilst_size) from binary MP4 data, or (None, None)."""
-            moov_off, moov_sz = _find_atom(data, 0, len(data), b'moov', skip=0)
+            """Return (ilst_offset, ilst_size) from binary MP4 data, or (None, None).
+            Supports both whole-file buffers and moov-only buffers."""
+            if len(data) >= 8 and data[4:8] == b'moov':
+                moov_off, moov_sz = (0, len(data))
+            else:
+                moov_off, moov_sz = _find_atom(data, 0, len(data), b'moov', skip=0)
             if moov_off is None:
                 return (None, None)
             udta_off, udta_sz = _find_atom(data, moov_off, moov_sz, b'udta')
@@ -328,68 +351,103 @@ class Converter:
             ilst_off, ilst_sz = _find_atom(data, meta_off, meta_sz, b'ilst', skip=12)
             return (ilst_off, ilst_sz)
 
-        def _binary_replace_ilst(dest_path, source_data):
-            """Binary-copy ilst from source_data into dest_path (in place, no faststart).
-            Handles insert/create if dest lacks ilst/meta/udta.
-            Returns (success, delta_bytes)."""
-            src_ilst_off, src_ilst_sz = _find_ilst_in(source_data)
-            if src_ilst_off is None:
-                return (False, 0)
+        def _extract_ilst_from_file(path):
+            """Extract ilst atom from MP4 file without loading the whole file into RAM."""
+            try:
+                fsize = os.path.getsize(path)
+                with open(path, 'rb') as f:
+                    off = 0
+                    while off + 8 <= fsize:
+                        f.seek(off)
+                        hdr = f.read(8)
+                        if len(hdr) < 8:
+                            break
+                        sz, atype = struct.unpack('>I4s', hdr)
+                        hdr_len = 8
+                        if sz == 1:
+                            ext = f.read(8)
+                            if len(ext) < 8:
+                                break
+                            actual = struct.unpack('>Q', ext)[0]
+                            hdr_len = 16
+                        elif sz == 0:
+                            actual = fsize - off
+                        else:
+                            actual = int(sz)
+                        if actual < hdr_len:
+                            break
+                        if atype == b'moov':
+                            f.seek(off)
+                            moov_bytes = f.read(actual)
+                            ilst_off, ilst_sz = _find_ilst_in(moov_bytes)
+                            if ilst_off is not None and ilst_sz is not None:
+                                return moov_bytes[ilst_off:ilst_off + ilst_sz]
+                            return None
+                        off += actual
+            except Exception as e:
+                ui_log(f"Extract ilst from {path} failed: {e}", is_error=True)
+            return None
 
-            src_ilst_atom = source_data[src_ilst_off:src_ilst_off + src_ilst_sz]
-
-            dst = bytearray(_read_bytes(dest_path))
-
-            moov_off, moov_sz = _find_atom(dst, 0, len(dst), b'moov', skip=0)
-            if moov_off is None:
-                return (False, 0)
-
-            udta_off, udta_sz = _find_atom(dst, moov_off, moov_sz, b'udta')
-            meta_off, meta_sz = _find_atom(dst, udta_off if udta_off else 0,
-                                           udta_sz if udta_off else 0, b'meta')
+        def _apply_ilst_to_moov(moov_buf: bytearray, ilst_atom: bytes) -> tuple[bytearray, int]:
+            """Insert or replace ilst_atom inside a bytearray containing a moov atom.
+            Updates udta, meta, and moov container sizes. Returns (new_moov_buf, delta)."""
+            moov_sz = len(moov_buf)
+            udta_off, udta_sz = _find_atom(moov_buf, 0, moov_sz, b'udta')
+            meta_off, meta_sz = (None, None)
+            if udta_off is not None:
+                meta_off, meta_sz = _find_atom(moov_buf, udta_off, udta_sz, b'meta')
             ilst_off, ilst_sz = (None, None)
             if meta_off is not None:
-                ilst_off, ilst_sz = _find_atom(dst, meta_off, meta_sz, b'ilst', skip=12)
+                ilst_off, ilst_sz = _find_atom(moov_buf, meta_off, meta_sz, b'ilst', skip=12)
 
             if ilst_off is not None and ilst_sz is not None:
-                delta = len(src_ilst_atom) - ilst_sz
-                dst[ilst_off:ilst_off + ilst_sz] = src_ilst_atom
-                update_list = [(meta_off, meta_sz), (udta_off, udta_sz), (moov_off, moov_sz)]
+                delta = len(ilst_atom) - ilst_sz
+                moov_buf[ilst_off:ilst_off + ilst_sz] = ilst_atom
+                update_list = [(meta_off, meta_sz), (udta_off, udta_sz), (0, moov_sz)]
+            elif meta_off is not None:
+                insert_at = meta_off + meta_sz
+                moov_buf[insert_at:insert_at] = ilst_atom
+                delta = len(ilst_atom)
+                update_list = [(meta_off, meta_sz), (udta_off, udta_sz), (0, moov_sz)]
+            elif udta_off is not None:
+                hdlr = _build_hdlr()
+                meta_body = hdlr + ilst_atom
+                meta_full = struct.pack('>I4sI', 12 + len(meta_body), b'meta', 0) + meta_body
+                insert_at = udta_off + udta_sz
+                moov_buf[insert_at:insert_at] = meta_full
+                delta = len(meta_full)
+                update_list = [(udta_off, udta_sz), (0, moov_sz)]
             else:
-                # Insert source ilst — build missing containers as needed.
-                # Parent offsets (moov_off, udta_off, meta_off) are unchanged
-                # because we insert AFTER them.
-                if meta_off is not None:
-                    insert_at = meta_off + meta_sz
-                    dst[insert_at:insert_at] = src_ilst_atom
-                    delta = len(src_ilst_atom)
-                    update_list = [(meta_off, meta_sz), (udta_off, udta_sz), (moov_off, moov_sz)]
-                elif udta_off is not None:
-                    hdlr = _build_hdlr()
-                    meta_body = hdlr + src_ilst_atom
-                    meta_full = struct.pack('>I4sI', 12 + len(meta_body), b'meta', 0) + meta_body
-                    insert_at = udta_off + udta_sz
-                    dst[insert_at:insert_at] = meta_full
-                    delta = len(meta_full)
-                    update_list = [(udta_off, udta_sz), (moov_off, moov_sz)]
-                else:
-                    hdlr = _build_hdlr()
-                    meta_body = hdlr + src_ilst_atom
-                    meta_full = struct.pack('>I4sI', 12 + len(meta_body), b'meta', 0) + meta_body
-                    udta_full = struct.pack('>I4s', len(meta_full) + 8, b'udta') + meta_full
-                    insert_at = moov_off + moov_sz
-                    dst[insert_at:insert_at] = udta_full
-                    delta = len(udta_full)
-                    update_list = [(moov_off, moov_sz)]
+                hdlr = _build_hdlr()
+                meta_body = hdlr + ilst_atom
+                meta_full = struct.pack('>I4sI', 12 + len(meta_body), b'meta', 0) + meta_body
+                udta_full = struct.pack('>I4s', len(meta_full) + 8, b'udta') + meta_full
+                insert_at = moov_sz
+                moov_buf[insert_at:insert_at] = udta_full
+                delta = len(udta_full)
+                update_list = [(0, moov_sz)]
 
             for off, _ in update_list:
                 if off is None:
                     continue
-                old_sz = struct.unpack('>I', dst[off:off+4])[0]
-                struct.pack_into('>I', dst, off, old_sz + delta)
+                old_sz = struct.unpack('>I', moov_buf[off:off+4])[0]
+                struct.pack_into('>I', moov_buf, off, old_sz + delta)
 
-            _write_bytes(dest_path, bytes(dst))
-            return (True, delta)
+            return moov_buf, delta
+
+        def _binary_replace_ilst(dest_path, source):
+            """Binary-copy ilst from source (file path, bytes, or bytearray) into dest_path.
+            Returns (success, delta_bytes)."""
+            if isinstance(source, (bytes, bytearray)):
+                src_ilst_off, src_ilst_sz = _find_ilst_in(source)
+                if src_ilst_off is None or src_ilst_sz is None:
+                    return (False, 0)
+                src_ilst_atom = bytes(source[src_ilst_off:src_ilst_off + src_ilst_sz])
+            else:
+                src_ilst_atom = _extract_ilst_from_file(str(source))
+                if not src_ilst_atom:
+                    return (False, 0)
+            return _inject_ilst(dest_path, src_ilst_atom)
 
         def _build_hdlr():
             """Build a standard 33-byte hdlr atom for 'mdir' (metadata handler)."""
@@ -492,52 +550,79 @@ class Converter:
             return bytes(ba)
 
         def _inject_ilst(dest_path, ilst_atom):
-            """Inject a pre-built ilst atom into dest_path.
-            Creates udta/meta/hdlr containers if missing.
-            Returns (success, delta_bytes)."""
-            dst = bytearray(_read_bytes(dest_path))
-            moov_off, moov_sz = _find_atom(dst, 0, len(dst), b'moov', skip=0)
-            if moov_off is None:
+            """Inject a pre-built ilst atom into dest_path without loading whole file into RAM.
+            Creates udta/meta/hdlr containers if missing. Returns (success, delta_bytes)."""
+            try:
+                fsize = os.path.getsize(dest_path)
+                with open(dest_path, 'rb') as f:
+                    off = 0
+                    moov_off, moov_sz = None, None
+                    while off + 8 <= fsize:
+                        f.seek(off)
+                        hdr = f.read(8)
+                        if len(hdr) < 8:
+                            break
+                        sz, atype = struct.unpack('>I4s', hdr)
+                        hdr_len = 8
+                        if sz == 1:
+                            ext = f.read(8)
+                            if len(ext) < 8:
+                                break
+                            actual = struct.unpack('>Q', ext)[0]
+                            hdr_len = 16
+                        elif sz == 0:
+                            actual = fsize - off
+                        else:
+                            actual = int(sz)
+                        if actual < hdr_len:
+                            break
+                        if atype == b'moov':
+                            moov_off, moov_sz = off, actual
+                            break
+                        off += actual
+
+                if moov_off is None or moov_sz is None:
+                    return (False, 0)
+
+                with open(dest_path, 'rb') as f:
+                    f.seek(moov_off)
+                    moov_data = bytearray(f.read(moov_sz))
+
+                new_moov, delta = _apply_ilst_to_moov(moov_data, ilst_atom)
+
+                if moov_off + moov_sz >= fsize:
+                    with open(dest_path, 'r+b') as f:
+                        f.seek(moov_off)
+                        f.write(new_moov)
+                        f.truncate()
+                        f.flush()
+                        os.fsync(f.fileno())
+                else:
+                    tmp_out = str(dest_path) + f".tmp_meta.{os.getpid()}"
+                    with open(dest_path, 'rb') as src, open(tmp_out, 'wb') as dst:
+                        if moov_off > 0:
+                            rem = moov_off
+                            while rem > 0:
+                                c = src.read(min(65536, rem))
+                                if not c:
+                                    break
+                                dst.write(c)
+                                rem -= len(c)
+                        dst.write(new_moov)
+                        src.seek(moov_off + moov_sz)
+                        while True:
+                            c = src.read(65536)
+                            if not c:
+                                break
+                            dst.write(c)
+                        dst.flush()
+                        os.fsync(dst.fileno())
+                    os.replace(tmp_out, dest_path)
+
+                return (True, delta)
+            except Exception as e:
+                ui_log(f"Inject ilst failed: {e}", is_error=True)
                 return (False, 0)
-            udta_off, udta_sz = _find_atom(dst, moov_off, moov_sz, b'udta')
-            meta_off, meta_sz = _find_atom(
-                dst, udta_off if udta_off else 0, udta_sz if udta_off else 0, b'meta')
-            ilst_off, ilst_sz = (None, None)
-            if meta_off is not None:
-                ilst_off, ilst_sz = _find_atom(dst, meta_off, meta_sz, b'ilst', skip=12)
-            if ilst_off is not None:
-                delta = len(ilst_atom) - ilst_sz
-                dst[ilst_off:ilst_off + ilst_sz] = ilst_atom
-                update_list = [(meta_off, meta_sz), (udta_off, udta_sz), (moov_off, moov_sz)]
-            elif meta_off is not None:
-                insert_at = meta_off + meta_sz
-                dst[insert_at:insert_at] = ilst_atom
-                delta = len(ilst_atom)
-                update_list = [(meta_off, meta_sz), (udta_off, udta_sz), (moov_off, moov_sz)]
-            elif udta_off is not None:
-                hdlr = _build_hdlr()
-                meta_body = hdlr + ilst_atom
-                meta_full = struct.pack('>I4sI', 12 + len(meta_body), b'meta', 0) + meta_body
-                insert_at = udta_off + udta_sz
-                dst[insert_at:insert_at] = meta_full
-                delta = len(meta_full)
-                update_list = [(udta_off, udta_sz), (moov_off, moov_sz)]
-            else:
-                hdlr = _build_hdlr()
-                meta_body = hdlr + ilst_atom
-                meta_full = struct.pack('>I4sI', 12 + len(meta_body), b'meta', 0) + meta_body
-                udta_full = struct.pack('>I4s', len(meta_full) + 8, b'udta') + meta_full
-                insert_at = moov_off + moov_sz
-                dst[insert_at:insert_at] = udta_full
-                delta = len(udta_full)
-                update_list = [(moov_off, moov_sz)]
-            for off, _ in update_list:
-                if off is None:
-                    continue
-                old_sz = struct.unpack('>I', dst[off:off+4])[0]
-                struct.pack_into('>I', dst, off, old_sz + delta)
-            _write_bytes(dest_path, bytes(dst))
-            return (True, delta)
 
         def _extract_cover_art(path):
             """Extract cover art image from MKV attachments using ffmpeg.
@@ -606,11 +691,23 @@ class Converter:
                 while off + 8 <= fsize:
                     f.seek(off)
                     hdr = f.read(8)
+                    if len(hdr) < 8:
+                        break
                     sz = _s.unpack('>I', hdr[:4])[0]
                     atype = hdr[4:8]
-                    if sz == 0:
+                    hdr_len = 8
+                    if sz == 1:
+                        ext = f.read(8)
+                        if len(ext) < 8:
+                            break
+                        actual = _s.unpack('>Q', ext)[0]
+                        hdr_len = 16
+                    elif sz == 0:
+                        actual = fsize - off
+                    else:
+                        actual = int(sz)
+                    if actual < hdr_len:
                         break
-                    actual = int(sz)
                     if atype == b'ftyp':
                         ftyp_off, ftyp_sz = off, actual
                     elif atype == b'moov':
@@ -698,8 +795,10 @@ class Converter:
                             break
                         dst.write(c)
                         rem -= len(c)
+                    dst.flush()
+                    os.fsync(dst.fileno())
 
-                shutil.move(tmp_path, path)
+                os.replace(tmp_path, path)
                 return True
 
         # ──────────────────────────────────────────────────
@@ -806,8 +905,7 @@ class Converter:
                 ui_log("Source is local — using directly for metadata...")
                 if is_mp4:
                     try:
-                        src_data = _read_bytes(source_path)
-                        ok, delta = _binary_replace_ilst(dest_path, src_data)
+                        ok, delta = _binary_replace_ilst(dest_path, source_path)
                         if ok:
                             if _apply_faststart(dest_path, tmp_video_path):
                                 out_tags = probe_tags(dest_path, "Local binary ilst")
@@ -917,8 +1015,7 @@ class Converter:
                         # Try binary ilst replacement from cache into dest
                         try:
                             ui_log("Attempting binary ilst replacement...")
-                            src_cache = _read_bytes(cache_partial)
-                            ok, delta = _binary_replace_ilst(dest_path, src_cache)
+                            ok, delta = _binary_replace_ilst(dest_path, cache_partial)
                             if ok:
                                 ui_log(f"Binary ilst replaced (delta={delta})")
                                 if _apply_faststart(dest_path, tmp_video_path):
@@ -962,8 +1059,7 @@ class Converter:
                     # Try binary on full copy
                     try:
                         ui_log("Attempting binary ilst from full cache...")
-                        src_cache = _read_bytes(cache_full)
-                        ok, delta = _binary_replace_ilst(dest_path, src_cache)
+                        ok, delta = _binary_replace_ilst(dest_path, cache_full)
                         if ok:
                             if _apply_faststart(dest_path, tmp_video_path):
                                 out_tags = probe_tags(dest_path, "Full binary ilst")
@@ -1033,6 +1129,9 @@ class Converter:
         # rigaya NVEncC encoder families use a separate CLI (not HandBrakeCLI)
         if self.encoder_manager.encode_backend(settings.encoder) == 'nvenc':
             return self._build_nvenc_command(input_path, output_path, settings)
+        # Direct video stream copy (lossless passthrough) uses FFmpeg
+        if self.encoder_manager.encode_backend(settings.encoder) == 'ffmpeg':
+            return self._build_ffmpeg_copy_command(input_path, output_path, settings)
 
         bit_depth = self._effective_bit_depth(input_path, settings)
         cmd = list(self._hb_cmd) + ['-i', input_path, '-o', output_path,
@@ -1160,6 +1259,76 @@ class Converter:
         cmd += ['--audio-copy']
         return cmd
 
+    def _build_ffmpeg_copy_command(self, input_path: str, output_path: str,
+                                   settings: ConversionSettings) -> list:
+        """Build an FFmpeg command for direct video stream copy (lossless remux)."""
+        custom_path = os.environ.get('PATH', '') + os.pathsep + '/usr/local/bin' + os.pathsep + os.path.expanduser('~/.local/bin')
+        ffmpeg_bin = shutil.which('ffmpeg', path=custom_path) or 'ffmpeg'
+        cmd = [
+            ffmpeg_bin, '-y',
+            '-i', input_path,
+        ]
+
+        # External subtitles if provided (add as additional inputs)
+        extra_inputs = 0
+        if settings.external_srt_files:
+            for sub_entry in settings.external_srt_files:
+                sub_path = sub_entry[0] if isinstance(sub_entry, tuple) else sub_entry
+                if os.path.exists(sub_path):
+                    cmd.extend(['-i', sub_path])
+                    extra_inputs += 1
+
+        # Map video stream(s) with direct copy
+        cmd.extend(['-map', '0:v?', '-c:v', 'copy'])
+
+        # Audio stream handling
+        if settings.audio_track_overrides:
+            tracks = sorted(settings.audio_track_overrides.keys())
+            for t in tracks:
+                cmd.extend(['-map', f'0:a:{t-1}'])
+            for idx, t in enumerate(tracks):
+                t_info = settings.audio_track_overrides[t]
+                enc = t_info.get('encoder', 'copy')
+                if enc == 'copy':
+                    cmd.extend([f'-c:a:{idx}', 'copy'])
+                else:
+                    cmd.extend([f'-c:a:{idx}', enc])
+                    tb = t_info.get('bitrate')
+                    if tb:
+                        cmd.extend([f'-b:a:{idx}', f'{tb}k'])
+        else:
+            cmd.extend(['-map', '0:a?'])
+            if settings.audio_encoder == 'copy':
+                cmd.extend(['-c:a', 'copy'])
+            else:
+                cmd.extend(['-c:a', settings.audio_encoder])
+                if settings.audio_bitrate:
+                    cmd.extend(['-b:a', f'{settings.audio_bitrate}k'])
+
+        # Subtitles
+        if settings.subtitle_mode == 'none':
+            cmd.append('-sn')
+        else:
+            cmd.extend(['-map', '0:s?'])
+            for ext_idx in range(1, extra_inputs + 1):
+                cmd.extend(['-map', f'{ext_idx}:0'])
+
+            out_ext = Path(output_path).suffix.lower()
+            if out_ext == '.mp4':
+                cmd.extend(['-c:s', 'mov_text'])
+            else:
+                cmd.extend(['-c:s', 'copy'])
+
+        # Metadata & Chapter markers
+        cmd.extend(['-map_metadata', '0', '-map_chapters', '0'])
+        if Path(output_path).suffix.lower() == '.mp4':
+            cmd.extend(['-movflags', '+faststart'])
+
+        # Progress reporting
+        cmd.extend(['-progress', 'pipe:1', '-nostats'])
+        cmd.append(output_path)
+        return cmd
+
     def _build_subtitle_args(self, settings: ConversionSettings) -> list:
         args = []
 
@@ -1238,8 +1407,8 @@ class Converter:
     def _monitor_progress(self, callback):
         if not self._current_process:
             return
-        # Patterns for HandBrake progress output
-        pct_pattern = re.compile(r'Encoding:\s+task\s+\d+\s+of\s+\d+,\s+([\d.]+)\s+%')
+        # Patterns for HandBrake, NVEncC, and FFmpeg progress output
+        pct_pattern = re.compile(r'(?:Encoding:\s+task\s+\d+\s+of\s+\d+,\s+|\[)?([\d.]+)\s*%(?:\])?')
         fps_pattern = re.compile(r'([\d.]+)\s+fps')
 
         self._output_buffer = []
@@ -1256,6 +1425,10 @@ class Converter:
                     self._output_buffer.append(line)
                     if len(self._output_buffer) > 500:
                         self._output_buffer.pop(0)
+                    if 'progress=end' in line:
+                        if callback:
+                            callback(ConversionProgress(percent=100.0, fps=0.0))
+                        continue
                     match = pct_pattern.search(line)
                     if match:
                         pct = float(match.group(1))

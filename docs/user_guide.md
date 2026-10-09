@@ -1,6 +1,6 @@
 # MoTekLab Video Encoder — User Guide
 
-> Version 9.8.0 | PyQt6 + HandBrakeCLI
+> Version 10.0.0 | PyQt6 + HandBrakeCLI
 > Language: English
 
 ---
@@ -47,7 +47,7 @@
 6. Set subtitle mode to "copy", languages "eng"
 7. Click "🚀 CONVERT"
 8. Progress bars show encoding status for each file
-9. When done, new files appear alongside originals with .mp4 extension
+9. When done, new files appear alongside originals with .mkv extension
 ```
 
 ### First-Time Setup
@@ -210,6 +210,7 @@ encoders the detected tools can run are shown, each labeled with a badge:
 
 | Encoder | Type | Speed | File Size | Quality | Best For |
 |---------|------|-------|-----------|---------|----------|
+| **Copy (Passthrough)** | Stream Passthrough | ⚡ Instantaneous | Identical to source | 100% Lossless | Remuxing MKV ↔ MP4, audio transcoding, subtitles |
 | **NVENC H.265** | NVIDIA GPU | ⚡ Very Fast | Medium | Good | Every-day GPU encodes, 10-bit |
 | **NVENC H.264** | NVIDIA GPU | ⚡ Very Fast | Large | Fair | Streaming, compatibility |
 | **NVEncC H.265/H.264** | NVIDIA GPU (rigaya) | ⚡ Very Fast | Medium | Good | GPU encodes outside HandBrake limits |
@@ -224,6 +225,23 @@ encoders the detected tools can run are shown, each labeled with a badge:
 > **Note on AV1**: On GPUs without AV1 hardware (any RTX before RTX 40 / +5000-series
 > Intel / RDNA4-less AMD), AV1 is a **CPU** encoder (`SVT-AV1`). The GPU AV1 encoder
 > only appears when the hardware supports it.
+
+### Lossless Video Passthrough (Copy Mode) (v10.0.0)
+
+Selecting **Copy (Passthrough)** instructs MoTekLab Video Encoder to bypass video re-encoding entirely:
+- **Instantaneous Container Remuxing**: The video stream is copied directly into the destination container (`.mp4` or `.mkv`) in seconds using FFmpeg stream copy (`-c:v copy`).
+- **100% Lossless**: Video data remains byte-for-byte identical to the original; no compression artifacts are introduced.
+- **Audio & Subtitle Freedom**: Audio transcode settings (e.g. converting 5.1 EAC3 to stereo AAC), multi-track overrides, and subtitle tracks still apply.
+- **Quality Slider Behavior**: When Copy mode is active, the RF slider is automatically disabled (`RF: N/A (Lossless Copy)`).
+- **CLI Support**: Run `vconv --batch -i /path/to/videos -e copy -f mp4` to remux batches without transcoding video.
+
+### Enriched Media Analysis (v10.0.0)
+
+Clicking **🔍 Analyze** in the toolbar (or executing `vconv -a`) provides deep technical inspection formatted in clean, theme-aware cards:
+- **Container Telemetry**: Format name, overall file duration, and container overall bitrate.
+- **Video Stream Telemetry**: Video codec, resolution, framerate, stream-specific video bitrate, 8-bit/10-bit color depth, and pixel format.
+- **Audio Stream Details**: Track index, codec, channels/layout, bitrate, sample rate (e.g. `48 kHz`), language, and title.
+- **Subtitles Details**: Track index, subtitle codec (`SUBRIP`, `ASS`, `MOV_TEXT`), language, and title.
 
 ### 10-Bit and Crop Preservation (v9.7.0)
 
@@ -327,14 +345,19 @@ RF 35: ~1 MB/min → Poor, blocky in dark scenes
 
 | Preset | RF | Description | Best For |
 |--------|-----|-------------|----------|
+| **av1_efficient** | 27 | Modern SVT-AV1 10-bit: 25-35% smaller than HEVC, pristine clarity | Optimal quality & smallest file size (Recommended) |
+| **hevc_optimal** | 25 | Film-tuned x265 10-bit: no-sao, dark-scene AQ 3, crisp textures | High fidelity, zero waxy skin (Recommended) |
+| **nvenc_optimal** | 25 | NVIDIA GPU high-efficiency balanced encoding | Fast GPU conversion |
 | **fast** | 27 | Quick encoding, balanced size | Drafts, testing |
-| **balanced** | 25 | Slightly better than default | Everyday encoding (recommended) |
-| **high_quality** | 22 | Significant quality improvement | Important videos, movies |
+| **balanced** | 27 | Balanced everyday encoding | Everyday encoding |
+| **high_quality** | 23 | Significant quality improvement | Important videos, movies |
 | **archive** | 20 | Best quality for storage | Long-term archiving |
 | **nvenc_fast** | 27 | Fast NVIDIA GPU | Quick GPU encodes |
 | **nvenc_balanced** | 25 | Balanced NVIDIA | Daily GPU use |
 | **nvenc_quality** | 22 | High quality NVIDIA | GPU archival |
-| **tv_show** | 24 | Optimized for TV | Television episodes |
+| **tv_show** | 27 | Optimized for TV episodes | Television series |
+| **web_optimized** | 25 | Streaming web compatibility (H.264) | Web playback |
+| **mobile** | 28 | Compact 720p files for mobile devices | Mobile phones/tablets |
 
 **Can I create my own presets?**
 Not yet — presets are loaded from `presets/default_presets.json`. You can edit this file directly to add custom presets. Custom preset creation in the GUI is planned for a future release.
@@ -820,7 +843,17 @@ Runs ffprobe on each file and shows:
 
 ### Appearance (Theme)
 
-**Settings → Appearance** switches the whole app between **Light (Rosé)**, **Dark (Crimson)** and **System** (follows your operating system and switches live). The choice is stored as `appearance.theme` in `~/.config/vconv/vconv.conf`.
+You can switch themes in two ways:
+1. **Quick Toggle**: Click the **☀️ / 🌙** icon on the **top right of the main toolbar** to instantly flip between Fahhim Rosé Light and Fahhim Crimson Dark with a single click.
+2. **Menu**: **Settings → Appearance** lets you choose between **Light (Rosé)**, **Dark (Crimson)**, and **System** (follows your operating system color scheme live). The preference is saved in `~/.config/vconv/vconv.conf`.
+
+### Smart Efficiency Guard (Bloat Prevention)
+
+When converting videos that are already compressed with modern codecs:
+- **Live Notice**: If a loaded video is already HEVC or AV1 with low bitrate and your Quality slider is set to RF $\le 28$, a live **Efficiency Notice** will appear under the Quality slider warning that re-encoding may increase file size. It recommends using RF 30+ or preserving original video.
+- **Audio Optimization Tips**: If the video has high-bitrate audio (e.g. EAC3 768 kbps or DTS) and Audio is set to "copy", the guard calculates potential savings and suggests converting to AAC or Opus (128-160 kbps) to save 300+ MB.
+- **Pre-Flight Validation**: Clicking **✅ Validate** on the toolbar automatically checks efficiency across all loaded files and flags potential bloat risks before you start.
+- **Post-Conversion Tracking**: After encoding finishes, the status column reports the exact size delta (e.g. `⚠️ +106MB (+16%)` or `✅ -320MB (-45%)`).
 
 ### Saving Defaults
 
@@ -969,19 +1002,24 @@ amf_h265        → AMD HEVC
 amf_h264        → AMD H.264
 x265            → CPU HEVC (best quality)
 x264            → CPU H.264 (best compatibility)
-libsvtav1       → CPU AV1 (smallest files)
+svt_av1         → CPU SVT-AV1 (smallest files, 10-bit)
+nvencc_hevc     → rigaya NVEncC HEVC (NVIDIA)
+nvencc_av1      → rigaya NVEncC AV1 (RTX 40/50)
 ```
 
 **`--preset` / `-p`:**
 ```
+av1_efficient   → RF 27, SVT-AV1 10-bit: 25-35% smaller than HEVC (Recommended)
+hevc_optimal    → RF 25, x265 10-bit film tuned (no-sao, dark AQ 3) (Recommended)
+nvenc_optimal   → RF 25, NVIDIA GPU balanced optimal
 fast            → RF 27, quick encode
-balanced        → RF 25, everyday use
-high_quality    → RF 22, better quality
+balanced        → RF 27, everyday use
+high_quality    → RF 23, better quality
 archive         → RF 20, best quality
 nvenc_fast      → RF 27, NVIDIA quick
 nvenc_balanced  → RF 25, NVIDIA daily
 nvenc_quality   → RF 22, NVIDIA quality
-tv_show         → RF 24, television
+tv_show         → RF 27, television
 web_optimized   → RF 25, web streaming
 mobile          → RF 28, mobile devices
 ```
@@ -1334,7 +1372,7 @@ A: Yes. Select files in the Files table, click "Add to Queue", then click "Start
 A: Yes, via the `libsvtav1` encoder. It's CPU-only and very slow, but produces the smallest files at excellent quality.
 
 **Q: How do I update vconv?**
-A: Pull the latest version from GitHub:
+A: Use the in-app updater via **Help → Check for Updates**. When an update is available, click **🔄 Update & Restart** to download and install the new package automatically (supports `.deb` via polkit and AppImage in place). If running from a development git checkout, run:
 ```bash
 cd MoTekLab-vconv
 git pull
@@ -1352,5 +1390,5 @@ A: Run `vconv --reset` or go to File → Settings → Reset to Defaults.
 
 ---
 
-*Last updated: 2026-10-09 | MoTekLab Video Encoder v9.8.0 | Created by MoTekLab*
+*Last updated: 2026-10-09 | MoTekLab Video Encoder v10.0.0 | Created by MoTekLab*
 *Full documentation and updates at [moteklab.com](https://moteklab.com)*

@@ -21,15 +21,17 @@
 
 **MoTekLab Video Encoder** (formerly vconv) is a video converter GUI and CLI powered by HandBrakeCLI, built with PyQt6. Scan folders, convert video files in-place or to a new location, with hardware acceleration, subtitle handling, and a full conversion queue.
 
-Version: **9.8.0** (Fahhim theming with Light/Dark/System, dynamic settings-panel width, universal encoders, 10-bit/crop preservation, in-app tool updater)
+Version: **10.0.0** (Lossless video passthrough & container remuxing, enriched media telemetry & bitrate inspection, memory-safe $O(1)$ RAM atom surgery, queue isolation & atomic persistence, non-blocking background media analyzer, Fahhim theming with 1-click toggle, pre-flight efficiency guard, modern AV1/HEVC presets, and hardened security permissions)
 
 ### Key Features
 
-- **PyQt6 GUI**: Modern, responsive interface with proper threading (no UI freezes)
-- **Hardware Acceleration**: Auto-detects NVIDIA NVENC, Intel QSV, AMD AMF
+- **PyQt6 GUI & Headless CLI**: Dual execution modes: modern desktop interface and full-featured headless terminal batch CLI for scripts and server automation
+- **1-Click Theme Switcher**: Instant toggling between Fahhim Crimson Dark and Fahhim Rosé Light directly from the top toolbar
+- **Pre-Flight Smart Efficiency Guard**: Automatic bitrate & codec detection warns users when re-encoding risks file expansion, and flags heavy copied audio (e.g. EAC3 768k) to save space
+- **Hardware Acceleration**: Auto-detects NVIDIA NVENC, Intel QSV, AMD AMF, and rigaya NVEncC
 - **Batch Processing**: Convert entire TV shows or movie collections
-- **Conversion Queue**: Add files to queue, process sequentially
-- **Real-time Progress**: Per-file and overall progress bars
+- **Conversion Queue**: Add files to queue with isolated per-job settings, process sequentially
+- **Real-time Progress & Delta Tracking**: Per-file and overall progress with post-conversion size delta tracking (`±X MB`)
 - **Folder Structure Preservation**: Source directory tree mirrored in output by default
 - **Metadata Preservation**: Automatic source metadata preservation (title, date, genre, posters, TV show tags, custom iTunes atoms). Works on all sources (MP4, MKV) and all HandBrakeCLI versions
   - **Binary ilst replacement**: Byte-for-byte metadata copy for MP4 sources — preserves everything including `----` freeform atoms and cover art
@@ -38,11 +40,9 @@ Version: **9.8.0** (Fahhim theming with Light/Dark/System, dynamic settings-pane
   - **Pure-Python faststart**: Moves `moov` atom to front without re-encoding — preserves all metadata (unlike ffmpeg's faststart which drops custom atoms)
   - **Works on network mounts**: Full pipeline works on GVFS/SMB shares via local caching
 - **Audio Tracks**: Passthrough or re-encode (AAC, AC3, MP3, FLAC) with configurable bitrate
-- **CLI Interface**: Full command-line support for scripting and headless operation
-- **Custom Quality Settings**: Your tuned HandBrakeCLI x265 parameters applied by default
-- **Presets**: Fast, Balanced, High Quality, Archive, NVENC-optimized, TV Show
+- **Modern Presets**: AV1 High Efficiency (SVT-AV1 10-bit), HEVC Optimal Detail (film-tuned x265 10-bit), NVENC Optimal, Fast, Balanced, High Quality, Archive, TV Show
 - **File Validation & Analysis**: Check files before converting, view media metadata
-- **Comprehensive Help System**: Searchable help browser (F1), tooltips, What's This? context help (Shift+F1)
+- **Comprehensive Help System**: In-app CLI Reference dialog, searchable help browser (F1), tooltips, What's This? context help (Shift+F1)
 
 ---
 

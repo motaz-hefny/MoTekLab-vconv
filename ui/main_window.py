@@ -7,6 +7,8 @@ Features: Queue management, real progress, hardware acceleration, subtitle/audio
 
 import os
 import sys
+import copy
+import html
 import signal
 import logging
 import time
@@ -24,7 +26,7 @@ from PyQt6.QtWidgets import (
     QStatusBar, QToolBar, QMenu, QFrame, QSizePolicy,
     QLineEdit, QDialog, QFormLayout, QInputDialog,
     QListWidget, QListWidgetItem, QTextEdit, QTabWidget, QScrollArea,
-    QWhatsThis, QGridLayout, QProgressDialog
+    QWhatsThis, QGridLayout, QProgressDialog, QToolButton
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSize, QUrl, QTimer, QEvent
 from PyQt6.QtGui import QAction, QActionGroup, QFont, QKeySequence, QIcon, QPixmap, QShortcut
@@ -42,7 +44,7 @@ from utils.updater import check_for_updates, UpdateInfo
 from utils.i18n import I18n
 from utils.logging import get_logger
 from utils.version import __version__, APP_NAME, APP_DISPLAY_NAME
-from ui.theme import apply_theme, current_mode, current_palette, set_mode
+from ui.theme import apply_theme, current_mode, current_palette, set_mode, active_theme
 from utils.xdg_integration import ensure_xdg_integration
 
 logger = get_logger("ui.main_window")
@@ -116,6 +118,70 @@ def _park(worker):
         _retire_parked(worker)
 
 
+class BatchAnalyzeWorker(QThread):
+    """Background worker for non-blocking media analysis."""
+    file_analyzed = pyqtSignal(str, dict)
+    batch_done = pyqtSignal()
+
+    def __init__(self, file_list, analyzer, existing_cache):
+        super().__init__()
+        self.file_list = [f for f in file_list if f not in existing_cache]
+        self.analyzer = analyzer
+
+    def run(self):
+        for f in self.file_list:
+            info_dict = {
+                'video': '', 'video_bitrate': '',
+                'audio': '', 'audio_bitrate': '',
+                'audio_streams': [], 'resolution': '', 'duration': ''
+            }
+            try:
+                info = self.analyzer.analyze(f)
+                if info:
+                    audio_codec = ""
+                    audio_bitrate = ""
+                    audio_streams_list = []
+                    if info.audio_streams:
+                        a = info.audio_streams[0]
+                        audio_codec = a.get('codec', '')
+                        if a.get('channels'):
+                            audio_codec += f" {a['channels']}"
+                        audio_bitrate = a.get('bitrate', '')
+                        for st in info.audio_streams:
+                            audio_streams_list.append({
+                                'index': st.get('index'),
+                                'codec': st.get('codec', ''),
+                                'bitrate': st.get('bitrate', ''),
+                                'channels': st.get('channels', ''),
+                                'sample_rate': st.get('sample_rate', ''),
+                                'language': st.get('language', ''),
+                                'title': st.get('title', ''),
+                            })
+                    video = info.video_codec or ''
+                    video_bitrate = info.video_bitrate or ''
+                    res = f"{info.width}x{info.height}" if info.width and info.height else ''
+                    dur = info.duration or ''
+                    info_dict = {
+                        'video': video,
+                        'video_bitrate': video_bitrate,
+                        'audio': audio_codec,
+                        'audio_bitrate': audio_bitrate,
+                        'audio_streams': audio_streams_list,
+                        'subtitle_streams': info.subtitle_streams or [],
+                        'resolution': res,
+                        'duration': dur,
+                        'container_format': info.container_format or '',
+                        'overall_bitrate': info.overall_bitrate or '',
+                        'framerate': info.framerate or '',
+                        'bit_depth': info.bit_depth or 8,
+                        'pix_fmt': info.pix_fmt or '',
+                    }
+            except Exception:
+                pass
+            self.file_analyzed.emit(f, info_dict)
+        self.batch_done.emit()
+
+
 class ConversionWorker(QThread):
     """Worker thread for file conversion with proper Qt threading."""
     progress = pyqtSignal(object)
@@ -126,20 +192,32 @@ class ConversionWorker(QThread):
     command_ready = pyqtSignal(str)
     metadata_log = pyqtSignal(str)
 
-    def __init__(self, files, output_base, settings, encoder_manager, source_root=None, preserve_structure=True, file_subtitles=None, handbrake_cmd=None):
+    def __init__(self, files, output_base, settings, encoder_manager, source_root=None, preserve_structure=True, file_subtitles=None, handbrake_cmd=None, jobs=None, queue_manager=None):
         super().__init__()
-        self.files = files
+        self.files = files or []
         self.output_base = output_base
         self.settings = settings
         self.encoder_manager = encoder_manager
         self.preserve_structure = preserve_structure
         self.source_root = source_root
         self.file_subtitles = file_subtitles or {}
+        self.jobs = jobs
+        self.queue_manager = queue_manager
         self._cancel = False
         self._skip = False
         self._converter = Converter(encoder_manager, handbrake_cmd)
 
-    def _resolve_output(self, input_file):
+    def _build_job_settings(self, job_dict: dict) -> ConversionSettings:
+        if not job_dict:
+            return self.settings
+        s = copy.deepcopy(self.settings)
+        for k, v in job_dict.items():
+            if hasattr(s, k) and v is not None:
+                setattr(s, k, v)
+        return s
+
+    def _resolve_output(self, input_file, settings=None):
+        out_fmt = (settings or self.settings).output_format
         if self.output_base:
             if self.preserve_structure and self.source_root:
                 input_path = Path(input_file).resolve()
@@ -150,13 +228,73 @@ class ConversionWorker(QThread):
                     rel_path = Path(input_path.name)
                 output_dir = Path(self.output_base) / rel_path.parent
                 output_dir.mkdir(parents=True, exist_ok=True)
-                return str(output_dir / (input_path.stem + f'.{self.settings.output_format}'))
+                return str(output_dir / (input_path.stem + f'.{out_fmt}'))
             else:
                 os.makedirs(self.output_base, exist_ok=True)
-                return os.path.join(self.output_base, Path(input_file).stem + f'.{self.settings.output_format}')
-        return generate_output_path(input_file, format=self.settings.output_format, conflict_mode='rename')
+                return os.path.join(self.output_base, Path(input_file).stem + f'.{out_fmt}')
+        return generate_output_path(input_file, format=out_fmt, conflict_mode='rename')
 
     def run(self):
+        if self.jobs:
+            total = len(self.jobs)
+            success = 0
+            failed = 0
+
+            for idx, job in enumerate(self.jobs):
+                if self._cancel:
+                    break
+
+                if self._skip:
+                    self._skip = False
+                    if self.queue_manager:
+                        self.queue_manager.update_job_state(job.id, JobState.CANCELLED)
+                    self.file_finished.emit(False, f"Skipped: {os.path.basename(job.input_path)}")
+                    failed += 1
+                    continue
+
+                input_file = job.input_path
+                job_settings = self._build_job_settings(job.settings)
+                output_file = job.output_path or self._resolve_output(input_file, job_settings)
+                if self.queue_manager:
+                    self.queue_manager.update_job_state(job.id, JobState.RUNNING)
+
+                job_settings.external_srt_files = self.file_subtitles.get(input_file, [])
+
+                self.file_started.emit(idx, total, os.path.basename(input_file))
+                debug_cmd = f"HandBrakeCLI -i \"{input_file}\" -o \"{output_file}\" --encoder {self.encoder_manager.to_handbrake_encoder(job_settings.encoder)} --quality {job_settings.quality}"
+                self.command_ready.emit(debug_cmd)
+
+                def progress_cb(prog):
+                    if self.queue_manager:
+                        self.queue_manager.update_progress(job.id, prog.percent)
+                    self.progress.emit(prog)
+
+                def meta_log_cb(msg):
+                    self.metadata_log.emit(msg)
+
+                try:
+                    result = self._converter.convert(input_file, output_file, job_settings,
+                                                     progress_callback=progress_cb, log_callback=meta_log_cb)
+                    if result:
+                        success += 1
+                        if self.queue_manager:
+                            self.queue_manager.update_job_state(job.id, JobState.COMPLETED)
+                        self.file_finished.emit(True, output_file)
+                    else:
+                        failed += 1
+                        if self.queue_manager:
+                            self.queue_manager.update_job_state(job.id, JobState.FAILED)
+                        self.file_finished.emit(False, input_file)
+                except Exception as e:
+                    failed += 1
+                    if self.queue_manager:
+                        self.queue_manager.update_job_state(job.id, JobState.FAILED, error_message=str(e))
+                    self.error_occurred.emit(str(e))
+                    self.file_finished.emit(False, str(e))
+
+            self.all_finished.emit(success, failed, total - success - failed)
+            return
+
         total = len(self.files)
         success = 0
         failed = 0
@@ -695,6 +833,7 @@ class MainWindow(QMainWindow):
         self._update_worker = None
         self._tools_worker = None
         self._update_install_worker = None
+        self._analyze_worker = None
 
         self.quality = self.config.get('defaults', 'quality', 27)
         self.encoder = self.config.get('defaults', 'encoder', 'auto')
@@ -828,7 +967,7 @@ class MainWindow(QMainWindow):
             self.config.set('ui', f'{prefix}_col_{i}', header.sectionSize(i))
 
     def _reset_column_widths(self):
-        default_widths = [200, 65, 55, 55, 60, 60, 70, 55, 55]
+        default_widths = [180, 65, 65, 65, 90, 90, 85, 70, 65]
         header = self.file_table.horizontalHeader()
         for i, w in enumerate(default_widths):
             if i < header.count():
@@ -844,47 +983,27 @@ class MainWindow(QMainWindow):
         reset_cols.triggered.connect(self._reset_column_widths)
         menu.exec(self.file_table.viewport().mapToGlobal(pos))
 
+    def _on_file_analyzed(self, file_path: str, info: dict):
+        self._file_info_cache[file_path] = info
+        if file_path in self.files:
+            row = self.files.index(file_path)
+            if row < self.file_table.rowCount():
+                self.file_table.setItem(row, 2, QTableWidgetItem(info.get('video', '')))
+                self.file_table.setItem(row, 3, QTableWidgetItem(info.get('audio', '')))
+                self.file_table.setItem(row, 4, QTableWidgetItem(info.get('video_bitrate', '')))
+                self.file_table.setItem(row, 5, QTableWidgetItem(info.get('audio_bitrate', '')))
+                self.file_table.setItem(row, 6, QTableWidgetItem(info.get('resolution', '')))
+                self.file_table.setItem(row, 7, QTableWidgetItem(info.get('duration', '')))
+
     def _analyze_files_batch(self, file_list: list[str]):
-        """Analyze files in background and cache media info."""
-        for f in file_list:
-            if f in self._file_info_cache:
-                continue
-            try:
-                info = self.analyzer.analyze(f)
-                if info:
-                    audio_codec = ""
-                    audio_bitrate = ""
-                    audio_streams_list = []
-                    if info.audio_streams:
-                        a = info.audio_streams[0]
-                        audio_codec = a.get('codec', '')
-                        if a.get('channels'):
-                            audio_codec += f" {a['channels']}"
-                        audio_bitrate = a.get('bitrate', '')
-                        for st in info.audio_streams:
-                            audio_streams_list.append({
-                                'index': st.get('index'),
-                                'codec': st.get('codec', ''),
-                                'bitrate': st.get('bitrate', ''),
-                                'channels': st.get('channels', ''),
-                                'language': st.get('language', ''),
-                                'title': st.get('title', ''),
-                            })
-                    video = info.video_codec or ''
-                    video_bitrate = info.video_bitrate or ''
-                    res = f"{info.width}x{info.height}" if info.width and info.height else ''
-                    dur = info.duration or ''
-                    self._file_info_cache[f] = {
-                        'video': video,
-                        'video_bitrate': video_bitrate,
-                        'audio': audio_codec,
-                        'audio_bitrate': audio_bitrate,
-                        'audio_streams': audio_streams_list,
-                        'resolution': res,
-                        'duration': dur,
-                    }
-            except Exception:
-                self._file_info_cache[f] = {'video': '', 'video_bitrate': '', 'audio': '', 'audio_bitrate': '', 'audio_streams': [], 'resolution': '', 'duration': ''}
+        """Analyze files in background worker and cache media info without freezing the UI."""
+        to_analyze = [f for f in file_list if f not in self._file_info_cache]
+        if not to_analyze:
+            return
+        _park(self._analyze_worker)
+        self._analyze_worker = BatchAnalyzeWorker(to_analyze, self.analyzer, self._file_info_cache)
+        self._analyze_worker.file_analyzed.connect(self._on_file_analyzed)
+        self._analyze_worker.start()
 
     def _setup_ui(self):
         self.setWindowTitle(f"{APP_DISPLAY_NAME} v{__version__}")
@@ -1139,6 +1258,11 @@ class MainWindow(QMainWindow):
         act_whats_this.setToolTip("Click on any control to learn what it does (Shift+F1)")
         help_menu.addAction(act_whats_this)
 
+        act_cli_help = QAction("💻 &Command Line (CLI) Reference", self)
+        act_cli_help.triggered.connect(self._show_cli_help)
+        act_cli_help.setToolTip("View command-line syntax and headless batch conversion examples")
+        help_menu.addAction(act_cli_help)
+
         help_menu.addSeparator()
         help_menu.addAction("&Keyboard Shortcuts", self._show_shortcuts)
 
@@ -1182,7 +1306,9 @@ class MainWindow(QMainWindow):
         self.convert_action = QAction("🚀 CONVERT", self)
         self.convert_action.setToolTip("Start encoding all files in the list")
         self.convert_action.triggered.connect(lambda: self._start_conversion())
-        self.convert_action.setFont(QFont("", -1, QFont.Weight.Bold))
+        btn_font = QFont(self.font())
+        btn_font.setBold(True)
+        self.convert_action.setFont(btn_font)
         toolbar.addAction(self.convert_action)
 
         self.pause_action = QAction("⏸ Pause", self)
@@ -1203,8 +1329,21 @@ class MainWindow(QMainWindow):
         self.cancel_action.setEnabled(False)
         toolbar.addAction(self.cancel_action)
 
+        # Spacer pushes subsequent actions to the far right of the toolbar
+        spacer = QWidget()
+        spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        toolbar.addWidget(spacer)
+
+        self.theme_toggle_btn = QToolButton(self)
+        self.theme_toggle_btn.setObjectName("themeToggleBtn")
+        self.theme_toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._update_theme_toggle_btn()
+        self.theme_toggle_btn.clicked.connect(self._toggle_theme)
+        toolbar.addWidget(self.theme_toggle_btn)
+
     def _create_central_widget(self):
         central = QWidget()
+        central.setObjectName("centralWidget")
         self.setCentralWidget(central)
         main_layout = QHBoxLayout(central)
         main_layout.setSpacing(8)
@@ -1371,7 +1510,9 @@ class MainWindow(QMainWindow):
         )
         enc_layout.addWidget(self.encoder_combo)
         # SVT-AV1 speed preset (0 = best/ slowest ... 12 = fastest)
-        av1_row = QHBoxLayout()
+        self.av1_speed_widget = QWidget()
+        av1_row = QHBoxLayout(self.av1_speed_widget)
+        av1_row.setContentsMargins(0, 0, 0, 0)
         av1_row.addWidget(QLabel("AV1 Speed:"))
         self.av1_speed_combo = QComboBox()
         for val in (0, 2, 4, 6, 8, 10, 12):
@@ -1381,7 +1522,7 @@ class MainWindow(QMainWindow):
         self.av1_speed_combo.setToolTip("SVT-AV1 encode speed: 0 = best quality/slowest, 12 = fastest")
         av1_row.addWidget(self.av1_speed_combo)
         self.av1_speed_row = av1_row
-        enc_layout.addLayout(av1_row)
+        enc_layout.addWidget(self.av1_speed_widget)
         self._on_encoder_changed(self.encoder_combo.currentText())
         hw_text = f"🖥️ {self.encoder_manager.get_hardware_name()}"
         recommended = self.encoder_manager.get_recommended_encoder()
@@ -1394,7 +1535,7 @@ class MainWindow(QMainWindow):
         enc_layout.addWidget(hw_label)
         video_layout.addWidget(encoder_group)
 
-        crop_group = QGroupBox("Crop & Color (v9.7)")
+        crop_group = QGroupBox("Cropping && Color")
         crop_layout = QVBoxLayout(crop_group)
         self.crop_none_radio = QRadioButton("Preserve full frame (no crop)")
         self.crop_auto_radio = QRadioButton("Auto-crop black bars")
@@ -1438,17 +1579,30 @@ class MainWindow(QMainWindow):
         qual_layout.addWidget(self.quality_slider)
         self.quality_label = QLabel(f"Current: {self.quality}")
         qual_layout.addWidget(self.quality_label)
+        self.efficiency_hint_label = QLabel()
+        self.efficiency_hint_label.setObjectName("efficiencyHintLabel")
+        self.efficiency_hint_label.setWordWrap(True)
+        self.efficiency_hint_label.setVisible(False)
+        qual_layout.addWidget(self.efficiency_hint_label)
         video_layout.addWidget(quality_group)
 
         preset_group = QGroupBox("Preset")
         preset_layout = QVBoxLayout(preset_group)
         self.preset_combo = QComboBox()
-        self.preset_combo.addItems(['fast', 'balanced', 'high_quality', 'archive', 'nvenc_fast', 'nvenc_balanced', 'nvenc_quality', 'web_optimized', 'mobile', 'tv_show'])
+        self.preset_combo.addItems([
+            'av1_efficient', 'hevc_optimal', 'nvenc_optimal',
+            'fast', 'balanced', 'high_quality', 'archive',
+            'nvenc_fast', 'nvenc_balanced', 'nvenc_quality',
+            'web_optimized', 'mobile', 'tv_show'
+        ])
         self.preset_combo.currentTextChanged.connect(self._apply_preset)
         self.preset_combo.setToolTip("Quick-select a preset configuration")
         self.preset_combo.setWhatsThis(
             "<b>Presets</b><br>"
             "Pre-configured settings for common use cases.<br><br>"
+            "<b>av1_efficient</b> — Modern SVT-AV1 10-bit (25-35% smaller than HEVC), RF 27<br>"
+            "<b>hevc_optimal</b> — x265 10-bit Film-Tuned (no-sao, dark AQ 3), RF 25<br>"
+            "<b>nvenc_optimal</b> — NVIDIA GPU optimal balance, RF 25<br>"
             "<b>fast</b> — Quick encoding, RF 27<br>"
             "<b>balanced</b> — Everyday use, RF 27<br>"
             "<b>high_quality</b> — Important videos, RF 23<br>"
@@ -1660,6 +1814,7 @@ class MainWindow(QMainWindow):
 
     def _create_right_panel(self):
         panel = QWidget()
+        panel.setObjectName("rightPanel")
         layout = QVBoxLayout(panel)
         layout.setSpacing(6)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -1682,7 +1837,7 @@ class MainWindow(QMainWindow):
                 if i < header.count():
                     header.resizeSection(i, w)
         else:
-            default_w = [200, 65, 55, 55, 60, 60, 70, 55, 55]
+            default_w = [180, 65, 65, 65, 90, 90, 85, 70, 65]
             for i, w in enumerate(default_w):
                 header.resizeSection(i, w)
         self.file_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
@@ -1856,7 +2011,7 @@ class MainWindow(QMainWindow):
     def _shutdown_workers(self):
         """Join owned QThreads before the window (their last reference) dies."""
         for w in (self.worker, self._tools_worker, self._update_worker,
-                  self._update_install_worker):
+                  self._update_install_worker, getattr(self, '_analyze_worker', None)):
             if w is None:
                 continue
             if not w.wait(5000):
@@ -1868,15 +2023,57 @@ class MainWindow(QMainWindow):
             self.encoder = enc
         # AV1 speed row only matters for AV1 encoders
         is_av1 = self.encoder in ('svt_av1', 'nvenc_av1', 'nvencc_av1')
+        if hasattr(self, 'av1_speed_widget'):
+            self.av1_speed_widget.setVisible(is_av1)
         if hasattr(self, 'av1_speed_row'):
             for i in range(self.av1_speed_row.count()):
                 w = self.av1_speed_row.itemAt(i).widget()
                 if isinstance(w, QComboBox):
                     w.setEnabled(is_av1)
+        is_copy = (self.encoder == 'copy')
+        if hasattr(self, 'quality_slider'):
+            self.quality_slider.setEnabled(not is_copy)
+        if hasattr(self, 'quality_label'):
+            if is_copy:
+                self.quality_label.setText("RF: N/A (Lossless Copy)")
+            else:
+                self.quality_label.setText(f"Current: {self.quality}")
+        self._update_efficiency_hint()
 
     def _on_quality_changed(self, value):
         self.quality = value
-        self.quality_label.setText(f"Current: {value}")
+        if getattr(self, 'encoder', '') != 'copy':
+            self.quality_label.setText(f"Current: {value}")
+        self._update_efficiency_hint()
+
+    def _update_efficiency_hint(self):
+        """Update live efficiency tip below quality slider based on selected/first file."""
+        if not hasattr(self, 'efficiency_hint_label'):
+            return
+
+        if getattr(self, 'encoder', '') == 'copy':
+            self.efficiency_hint_label.setText("⚡ <b>Passthrough Active:</b> Video stream is copied directly without re-encoding (instantaneous & 100% lossless). Audio and container settings still apply.")
+            self.efficiency_hint_label.setVisible(True)
+            return
+
+        target_file = None
+        selected = self.file_table.selectionModel().selectedRows() if hasattr(self, 'file_table') else []
+        if selected and 0 <= selected[0].row() < len(self.files):
+            target_file = self.files[selected[0].row()]
+        elif self.files:
+            target_file = self.files[0]
+
+        if not target_file:
+            self.efficiency_hint_label.setVisible(False)
+            return
+
+        info = self._file_info_cache.get(target_file, {})
+        warnings = self.validator.check_efficiency(target_file, info, self.quality, self.audio_encoder)
+        if warnings:
+            self.efficiency_hint_label.setText("💡 <b>Efficiency Notice:</b>\n" + "\n".join(f"• {w}" for w in warnings))
+            self.efficiency_hint_label.setVisible(True)
+        else:
+            self.efficiency_hint_label.setVisible(False)
 
     def _current_crop_mode(self) -> str:
         """Map the crop radio group to a ConversionSettings crop_mode value."""
@@ -1896,6 +2093,7 @@ class MainWindow(QMainWindow):
         is_copy = (text == 'copy')
         self.audio_bit_combo.setEnabled(not is_copy)
         self.audio_encoder = text
+        self._update_efficiency_hint()
 
     def _open_audio_tracks_dialog(self):
         if not self.files:
@@ -2055,9 +2253,11 @@ class MainWindow(QMainWindow):
             self.file_table.setItem(i, 6, QTableWidgetItem(info.get('resolution', '')))
             self.file_table.setItem(i, 7, QTableWidgetItem(info.get('duration', '')))
             self.file_table.setItem(i, 8, QTableWidgetItem("Pending"))
+        self._update_efficiency_hint()
 
     def _on_file_selection_changed(self, selected, deselected):
         self._refresh_subtitle_list()
+        self._update_efficiency_hint()
 
     def _refresh_subtitle_list(self):
         self.ext_sub_list.clear()
@@ -2105,61 +2305,180 @@ class MainWindow(QMainWindow):
             return
         valid = 0
         issues = []
+        efficiency_warnings = []
         for f in self.files:
             out = generate_output_path(f, format=self.format, conflict_mode='rename')
             result = self.validator.validate_file(f, out)
             if result.status == 'valid':
                 valid += 1
             else:
-                issues.append(f"{os.path.basename(f)}: {result.message}")
+                issues.append(f"<b>{html.escape(os.path.basename(f))}</b>: {html.escape(result.message)}")
+            info = self._file_info_cache.get(f, {})
+            eff = self.validator.check_efficiency(f, info, self.quality, self.audio_encoder)
+            if eff:
+                efficiency_warnings.append((os.path.basename(f), eff))
+
+        if not issues and not efficiency_warnings:
+            QMessageBox.information(self, "Validation", f"✅ All {valid} file(s) are valid and ready with optimal settings!")
+            return
+
+        # Show rich, themed, scrollable report dialog for issues or optimization warnings
+        p = current_palette()
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Validation & Optimization Report")
+        dlg.resize(680, 500)
+        dlg_layout = QVBoxLayout(dlg)
+        dlg_layout.setContentsMargins(16, 16, 16, 16)
+        dlg_layout.setSpacing(12)
+
+        header = QLabel(f"<b>Validation Summary:</b> {valid}/{len(self.files)} file(s) ready")
+        header.setStyleSheet(f"font-size: 13px; color: {p['foreground']};")
+        dlg_layout.addWidget(header)
+
+        text = QTextEdit()
+        text.setReadOnly(True)
+        html_blocks = []
+
         if issues:
-            QMessageBox.warning(self, "Validation", f"✅ Valid: {valid}\n⚠️ Issues: {len(issues)}\n\n" + '\n'.join(issues[:20]))
-        else:
-            QMessageBox.information(self, "Validation", f"✅ All {valid} files ready!")
+            html_blocks.append(
+                f"<div style='margin-bottom: 12px; padding: 10px; border: 1px solid {p['destructive']}; "
+                f"border-radius: 6px; background-color: {p['card']};'>"
+                f"<div style='color: {p['destructive']}; font-weight: bold; font-size: 13px; margin-bottom: 6px;'>"
+                f"❌ File Issues ({len(issues)})</div>"
+                + "<ul style='margin: 0; padding-left: 20px;'>"
+                + "".join(f"<li style='margin-bottom: 4px; color: {p['foreground']};'>{item}</li>" for item in issues)
+                + "</ul></div>"
+            )
+
+        if efficiency_warnings:
+            eff_items = []
+            for fname, warns in efficiency_warnings:
+                w_html = "".join(f"<li style='margin-bottom: 3px; color: {p['foreground']};'>{html.escape(w)}</li>" for w in warns)
+                eff_items.append(
+                    f"<div style='margin-top: 6px;'><b>{html.escape(fname)}</b>"
+                    f"<ul style='margin-top: 2px; padding-left: 20px;'>{w_html}</ul></div>"
+                )
+            html_blocks.append(
+                f"<div style='margin-bottom: 12px; padding: 10px; border: 1px solid {p['border']}; "
+                f"border-radius: 6px; background-color: {p['card']};'>"
+                f"<div style='color: {p['accent_fg']}; font-weight: bold; font-size: 13px; margin-bottom: 6px;'>"
+                f"⚠️ Efficiency & Size Warnings ({len(efficiency_warnings)})</div>"
+                + "".join(eff_items)
+                + "</div>"
+            )
+
+        text.setHtml("".join(html_blocks))
+        dlg_layout.addWidget(text)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        btn = QPushButton("Close")
+        btn.clicked.connect(dlg.close)
+        btn_row.addWidget(btn)
+        dlg_layout.addLayout(btn_row)
+        dlg.exec()
 
     def _analyze_files(self):
         if not self.files:
             QMessageBox.information(self, "Info", "No files to analyze")
             return
-        results = []
+        cards_html = []
+        p = current_palette()
         for f in self.files[:50]:
             try:
                 info = self.analyzer.analyze(f)
                 if info:
-                    subs = ""
-                    if info.subtitle_streams:
-                        sub_names = [f"[{s['language']}] {s['title']}" for s in info.subtitle_streams[:5]]
-                        subs = f"\n   📝 Subtitles ({len(info.subtitle_streams)}): {', '.join(sub_names)}"
-                    audio_info = ""
+                    v_bitrate_str = f" • <b>Bitrate:</b> {info.video_bitrate}" if info.video_bitrate else ""
+                    fps_str = f" • {info.framerate} fps" if info.framerate else ""
+                    depth_str = f" • {info.bit_depth or 8}-bit" if info.bit_depth else ""
+                    pix_str = f" ({info.pix_fmt})" if info.pix_fmt else ""
+                    overall_str = f" • <b>Overall Bitrate:</b> {info.overall_bitrate}" if info.overall_bitrate else ""
+                    fmt_str = f" • <b>Container:</b> {info.container_format}" if info.container_format else ""
+
+                    audio_rows = []
                     if info.audio_streams:
-                        aud_lines = []
-                        for a in info.audio_streams[:4]:
-                            parts = [f"{a['codec']}"]
-                            if a['channels']:
-                                parts.append(a['channels'])
-                            if a['language']:
-                                parts.append(f"[{a['language']}]")
-                            if a['title']:
-                                parts.append(f"\"{a['title']}\"")
-                            if a['bitrate']:
-                                parts.append(a['bitrate'])
-                            aud_lines.append(' '.join(parts))
-                        audio_info = f"\n   🔊 Audio ({len(info.audio_streams)}): {' | '.join(aud_lines)}"
-                    results.append(f"📄 {info.filename}\n   🎬 {info.video_codec} {info.width}x{info.height} | {info.filesize} | ⏱️ {info.duration or 'N/A'}{audio_info}{subs}")
-            except:
-                results.append(f"❌ {os.path.basename(f)}: Error")
-        if results:
+                        for idx, a in enumerate(info.audio_streams, 1):
+                            parts = [f"#{idx}: <b>{html.escape(a.get('codec') or 'Unknown')}</b>"]
+                            if a.get('channels'):
+                                parts.append(html.escape(str(a['channels'])))
+                            if a.get('bitrate'):
+                                parts.append(f"<b>{html.escape(str(a['bitrate']))}</b>")
+                            if a.get('sample_rate'):
+                                parts.append(html.escape(str(a['sample_rate'])))
+                            if a.get('language') and a['language'] != 'unknown':
+                                parts.append(f"[{html.escape(a['language'])}]")
+                            if a.get('title'):
+                                parts.append(f'"{html.escape(a["title"])}"')
+                            audio_rows.append(" • ".join(parts))
+                    audio_block = ""
+                    if audio_rows:
+                        audio_block = (
+                            f"<div style='margin-top: 6px; color: {p['foreground']};'>"
+                            f"🔊 <b>Audio Tracks ({len(info.audio_streams)}):</b><br/>"
+                            + "<div style='padding-left: 14px; margin-top: 2px;'>"
+                            + "<br/>".join(audio_rows)
+                            + "</div></div>"
+                        )
+
+                    sub_rows = []
+                    if info.subtitle_streams:
+                        for idx, s in enumerate(info.subtitle_streams, 1):
+                            s_parts = [f"#{idx}"]
+                            if s.get('codec'):
+                                s_parts.append(f"<b>{html.escape(s['codec'])}</b>")
+                            lang = s.get('language') or 'unknown'
+                            if lang != 'unknown':
+                                s_parts.append(f"[{html.escape(lang)}]")
+                            if s.get('title'):
+                                s_parts.append(f'"{html.escape(s["title"])}"')
+                            sub_rows.append(" • ".join(s_parts))
+                    sub_block = ""
+                    if sub_rows:
+                        sub_block = (
+                            f"<div style='margin-top: 6px; color: {p['foreground']};'>"
+                            f"📝 <b>Subtitles ({len(info.subtitle_streams)}):</b><br/>"
+                            + "<div style='padding-left: 14px; margin-top: 2px;'>"
+                            + "<br/>".join(sub_rows)
+                            + "</div></div>"
+                        )
+
+                    card = (
+                        f"<div style='margin-bottom: 12px; padding: 12px; border: 1px solid {p['border']}; "
+                        f"border-radius: 6px; background-color: {p['card']};'>"
+                        f"<div style='font-weight: bold; font-size: 13px; color: {p['primary']}; margin-bottom: 4px;'>"
+                        f"📄 {html.escape(info.filename)} <span style='font-size: 11px; font-weight: normal; color: {p['muted_fg']};'>({info.filesize})</span></div>"
+                        f"<div style='font-size: 12px; color: {p['foreground']};'>"
+                        f"⏱️ <b>Duration:</b> {info.duration or 'N/A'}{overall_str}{fmt_str}<br/>"
+                        f"🎬 <b>Video:</b> {info.video_codec or 'N/A'} {info.width or '?'}x{info.height or '?'}{fps_str}{v_bitrate_str}{depth_str}{pix_str}</div>"
+                        f"{audio_block}{sub_block}</div>"
+                    )
+                    cards_html.append(card)
+            except Exception as e:
+                cards_html.append(f"<div style='color: {p['destructive']}; margin-bottom: 8px;'>❌ <b>{html.escape(os.path.basename(f))}</b>: Analysis error ({html.escape(str(e))})</div>")
+
+        if cards_html:
             dlg = QDialog(self)
-            dlg.setWindowTitle("Analysis")
-            dlg.resize(640, 480)
+            dlg.setWindowTitle("Media Analysis")
+            dlg.resize(680, 520)
             dlg_layout = QVBoxLayout(dlg)
+            dlg_layout.setContentsMargins(16, 16, 16, 16)
+            dlg_layout.setSpacing(10)
+
+            header = QLabel(f"<b>Detailed Analysis:</b> {len(cards_html)} file(s) inspected")
+            header.setStyleSheet(f"font-size: 13px; color: {p['foreground']};")
+            dlg_layout.addWidget(header)
+
             text = QTextEdit()
             text.setReadOnly(True)
-            text.setText('\n\n'.join(results))
+            text.setHtml("".join(cards_html))
             dlg_layout.addWidget(text)
+
+            btn_row = QHBoxLayout()
+            btn_row.addStretch()
             btn = QPushButton("Close")
             btn.clicked.connect(dlg.close)
-            dlg_layout.addWidget(btn)
+            btn_row.addWidget(btn)
+            dlg_layout.addLayout(btn_row)
             dlg.exec()
 
     def _apply_preset(self, preset_name):
@@ -2185,6 +2504,14 @@ class MainWindow(QMainWindow):
                     self.audio_enc_combo.setCurrentText(p['audio_encoder'])
                 if 'audio_bitrate' in p and p.get('audio_encoder', 'copy') != 'copy':
                     self.audio_bit_combo.setCurrentText(str(p['audio_bitrate']))
+                if 'preset' in p and hasattr(self, 'av1_speed_combo') and self.encoder in ('svt_av1', 'nvenc_av1', 'nvencc_av1'):
+                    val = str(p['preset'])
+                    for i in range(self.av1_speed_combo.count()):
+                        if str(self.av1_speed_combo.itemData(i)) == val:
+                            self.av1_speed_combo.setCurrentIndex(i)
+                            break
+                self.preset_advanced = p.get('advanced')
+                self.preset_speed = p.get('preset')
                 self.status_label.setText(f"✅ {p.get('name', preset_name)} applied")
         except Exception as e:
             print(f"Preset error: {e}")
@@ -2284,7 +2611,8 @@ class MainWindow(QMainWindow):
             crop_mode=self._current_crop_mode(),
             crop_custom=self.crop_custom_edit.text() if self.crop_custom_radio.isChecked() else '',
             preserve_bit_depth=self.bitdepth_check.isChecked(),
-            encoder_preset=self._current_av1_preset(),
+            encoder_preset=self._current_av1_preset() or getattr(self, 'preset_speed', None),
+            advanced=getattr(self, 'preset_advanced', None),
         )
         settings.metadata_preserve_flag = self.hb_manager.metadata_flag() if self.hb_manager.detect() else None
 
@@ -2319,6 +2647,8 @@ class MainWindow(QMainWindow):
         if prog.fps > 0:
             fmt += f" — {prog.fps:.1f} fps"
         self.file_progress_bar.setFormat(fmt)
+        if self.worker and getattr(self.worker, 'jobs', None) and hasattr(self, 'queue_table'):
+            self._refresh_queue_table()
 
     def _on_file_started(self, idx, total, filename):
         self.progress_bar.setMaximum(total)
@@ -2326,9 +2656,13 @@ class MainWindow(QMainWindow):
         self._current_file_index = idx
         self.status_label.setText(f"Processing ({idx+1}/{total}): {filename[:50]}...")
         self._log(f"Started: {filename}")
+        if hasattr(self, 'queue_table'):
+            self._refresh_queue_table()
 
     def _on_file_finished(self, success, path):
         row = self._current_file_index
+        if hasattr(self, 'queue_table'):
+            self._refresh_queue_table()
         if path.startswith("Skipped:"):
             status = "⏭ Skipped"
             if row < self.file_table.rowCount():
@@ -2336,14 +2670,47 @@ class MainWindow(QMainWindow):
             self._log(path)
             return
         status = "✅ Done" if success else "❌ Failed"
-        if row < self.file_table.rowCount():
-            item = QTableWidgetItem(status)
-            if not success:
-                item.setToolTip(self._file_errors.get(self.files[row], ''))
-            self.file_table.setItem(row, 8, item)
         if success:
-            self._log(f"Completed: {os.path.basename(path)}")
+            in_file = None
+            if hasattr(self, 'worker') and self.worker and getattr(self.worker, 'jobs', None) and row < len(self.worker.jobs):
+                in_file = self.worker.jobs[row].input_path
+            elif row < len(self.files):
+                in_file = self.files[row]
+
+            size_info = ""
+            if in_file and os.path.exists(in_file) and os.path.exists(path):
+                in_sz = os.path.getsize(in_file)
+                out_sz = os.path.getsize(path)
+                if in_sz > 0:
+                    pct = ((out_sz - in_sz) / in_sz) * 100
+                    diff_mb = (out_sz - in_sz) / (1024 * 1024)
+                    if out_sz > in_sz:
+                        size_info = f" (⚠️ +{diff_mb:.1f} MB, +{pct:.1f}%)"
+                        status = f"⚠️ +{diff_mb:.0f}MB (+{pct:.0f}%)"
+                        self._log(
+                            f"[WARN] Bloat detected on {os.path.basename(path)}: Output ({out_sz // (1024*1024)} MB) is {diff_mb:.1f} MB larger than source (+{pct:.1f}%). "
+                            f"Source was already HEVC/AV1. Tip: Increase RF to 30+ or transcode audio to reduce size."
+                        )
+                        if row < self.file_table.rowCount():
+                            item = QTableWidgetItem(status)
+                            item.setToolTip(f"Output ({out_sz // (1024*1024)} MB) is larger than source ({in_sz // (1024*1024)} MB). Source was already compressed! Consider higher RF (e.g. 30+) or converting audio.")
+                            self.file_table.setItem(row, 8, item)
+                    else:
+                        size_info = f" (📉 -{abs(diff_mb):.1f} MB, -{abs(pct):.1f}%)"
+                        status = f"✅ -{abs(diff_mb):.0f}MB (-{abs(pct):.0f}%)"
+                        if row < self.file_table.rowCount():
+                            item = QTableWidgetItem(status)
+                            item.setToolTip(f"Saved {abs(diff_mb):.1f} MB ({abs(pct):.1f}% reduction). Output: {out_sz // (1024*1024)} MB")
+                            self.file_table.setItem(row, 8, item)
+            else:
+                if row < self.file_table.rowCount():
+                    self.file_table.setItem(row, 8, QTableWidgetItem(status))
+            self._log(f"Completed: {os.path.basename(path)}{size_info}")
         else:
+            if row < self.file_table.rowCount():
+                item = QTableWidgetItem(status)
+                item.setToolTip(self._file_errors.get(self.files[row], '') if row < len(self.files) else '')
+                self.file_table.setItem(row, 8, item)
             error_msg = ''
             worker_converter = getattr(self.worker, '_converter', None)
             if worker_converter and hasattr(worker_converter, 'last_error'):
@@ -2380,6 +2747,8 @@ class MainWindow(QMainWindow):
         else:
             self.status_label.setText(f"✅ Complete: {success} ok, {failed} failed")
             self._log(f"Complete: {success} ok, {failed} failed")
+        if hasattr(self, 'queue_table'):
+            self._refresh_queue_table()
         self._update_status_bar()
 
     def _add_external_subtitles(self):
@@ -2498,6 +2867,9 @@ class MainWindow(QMainWindow):
         self._update_status_bar()
 
     def _start_queue(self):
+        if self.is_converting:
+            QMessageBox.warning(self, "Warning", "A conversion is already in progress!")
+            return
         if not self.queue_manager.jobs:
             QMessageBox.information(self, "Info", "Queue is empty!\n\nSelect files and click 'Add to Queue' first.")
             return
@@ -2505,9 +2877,62 @@ class MainWindow(QMainWindow):
         if not pending:
             QMessageBox.information(self, "Info", "No pending jobs in queue!\n\nAll jobs are already completed or failed.")
             return
-        self.files = [j.input_path for j in pending]
-        self._refresh_file_table()
-        self._start_conversion()
+
+        self.is_converting = True
+        self.convert_action.setEnabled(False)
+        self.pause_action.setEnabled(True)
+        self.skip_action.setEnabled(True)
+        self.cancel_action.setEnabled(True)
+        self._paused = False
+        self.pause_action.setText("⏸ Pause")
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setMaximum(len(pending))
+        self.progress_bar.setValue(0)
+        self.file_progress_bar.setVisible(True)
+        self.file_progress_bar.setValue(0)
+        self.status_label.setText("Starting queue conversion...")
+
+        resolved_encoder = self.encoder
+        if resolved_encoder == 'auto' or not self.encoder_manager.is_available(resolved_encoder):
+            resolved_encoder = self.encoder_manager.get_recommended_encoder()
+
+        settings = ConversionSettings(
+            encoder=resolved_encoder,
+            quality=self.quality,
+            audio_encoder=self.audio_encoder,
+            audio_bitrate=int(self.audio_bit_combo.currentText()) if self.audio_encoder != 'copy' else None,
+            audio_track_overrides=self.audio_track_overrides if self.audio_track_overrides else None,
+            output_format=self.format,
+            subtitle_mode=self.subtitle_mode,
+            subtitle_burn=self.subtitle_burn,
+            subtitle_lang_list=self.subtitle_lang_list,
+            external_srt_files=[],
+            external_srt_burn=self.external_srt_burn,
+            external_srt_default=self.external_srt_default,
+            metadata_preserve=self.metadata_preserve,
+            crop_mode=self._current_crop_mode(),
+            crop_custom=self.crop_custom_edit.text() if hasattr(self, 'crop_custom_edit') and self.crop_custom_radio.isChecked() else '',
+            preserve_bit_depth=self.bitdepth_check.isChecked() if hasattr(self, 'bitdepth_check') else True,
+            encoder_preset=self._current_av1_preset() or getattr(self, 'preset_speed', None),
+            advanced=getattr(self, 'preset_advanced', None),
+        )
+        settings.metadata_preserve_flag = self.hb_manager.metadata_flag() if self.hb_manager.detect() else None
+
+        _park(self.worker)
+        self.worker = ConversionWorker(
+            None, None, settings, self.encoder_manager,
+            file_subtitles=self.file_subtitles,
+            handbrake_cmd=self.hb_manager.get_command() if self.hb_manager.detect() else None,
+            jobs=pending, queue_manager=self.queue_manager
+        )
+        self.worker.progress.connect(self._on_progress)
+        self.worker.file_started.connect(self._on_file_started)
+        self.worker.file_finished.connect(self._on_file_finished)
+        self.worker.all_finished.connect(self._on_all_finished)
+        self.worker.error_occurred.connect(self._on_error)
+        self.worker.command_ready.connect(self._on_command_ready)
+        self.worker.metadata_log.connect(self._log)
+        self.worker.start()
 
     def _refresh_queue_table(self):
         jobs = self.queue_manager.jobs
@@ -2537,12 +2962,26 @@ class MainWindow(QMainWindow):
             "ملاحظة: الواجهة أساساً باللغة الإنجليزية.\n"
             "متصفح المساعدة (F1) فقط يستخدم اللغة المحددة.")
 
+    def _toggle_theme(self):
+        """Toggle directly between light and dark themes from top-right icon."""
+        new_theme = 'light' if active_theme() == 'dark' else 'dark'
+        self._set_theme(new_theme)
+
+    def _update_theme_toggle_btn(self):
+        """Update top-right theme toggle button text and tooltip to match active theme."""
+        if not hasattr(self, 'theme_toggle_btn'):
+            return
+        is_dark = (active_theme() == 'dark')
+        self.theme_toggle_btn.setText("☀️" if is_dark else "🌙")
+        self.theme_toggle_btn.setToolTip("Switch to Light Theme" if is_dark else "Switch to Dark Theme")
+
     def _set_theme(self, mode):
-        """Appearance menu: persist + re-apply the Fahhim theme live."""
+        """Appearance menu & toggle button: persist + re-apply the Fahhim theme live."""
         set_mode(self.config, mode)
         apply_theme(QApplication.instance(), mode)
         for act in self._theme_group.actions():
             act.setChecked(act.data() == mode)
+        self._update_theme_toggle_btn()
 
     def _toggle_update_check(self, checked):
         self.config.set('general', 'check_updates', checked)
@@ -2637,7 +3076,8 @@ class MainWindow(QMainWindow):
         ffmpeg_found = shutil.which("ffmpeg")
         if ffmpeg_found:
             ver = self._get_ffmpeg_version()
-            self._log(f"ffmpeg detected ({ver or 'unknown'}) — Tool Updater keeps it current")
+            ver_str = ".".join(map(str, ver)) if ver else 'unknown'
+            self._log(f"ffmpeg detected ({ver_str}) — Tool Updater keeps it current")
             return
 
         self._log("ffmpeg not found — Tool Updater will download the latest build")
@@ -2784,6 +3224,79 @@ class MainWindow(QMainWindow):
             import webbrowser
             if self._update_release_url:
                 webbrowser.open(self._update_release_url)
+
+    def _show_cli_help(self):
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"{APP_NAME} — Command Line (CLI) Reference")
+        dlg.resize(680, 520)
+        layout = QVBoxLayout(dlg)
+        layout.setSpacing(10)
+        pal = current_palette()
+        muted_color = pal['muted_fg']
+        primary = pal['primary']
+
+        header = QLabel(f"<h3>💻 {APP_DISPLAY_NAME} — Command Line Interface</h3>"
+                        f"<p style='color: {muted_color};'>"
+                        f"Run conversions seamlessly via GUI or terminal automation / scripts.</p>")
+        layout.addWidget(header)
+
+        cli_text = QTextEdit()
+        cli_text.setReadOnly(True)
+        cli_html = f"""
+<div style="font-family: monospace; font-size: 12px; line-height: 1.5;">
+<b style="color: {primary};">SYNOPSIS:</b><br>
+&nbsp;&nbsp;<b>vconv</b> [OPTIONS]<br>
+&nbsp;&nbsp;<b>python3 vconv.py</b> [OPTIONS]<br><br>
+
+<b style="color: {primary};">EXECUTION MODES:</b><br>
+&nbsp;&nbsp;<b>--gui, -g</b>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Launch full graphical interface (default when no batch flags)<br>
+&nbsp;&nbsp;<b>--batch, -b</b>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Headless batch conversion without GUI<br>
+&nbsp;&nbsp;<b>--analyze, -a</b>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Analyze media metadata, audio &amp; subtitles without converting<br><br>
+
+<b style="color: {primary};">COMMON OPTIONS:</b><br>
+&nbsp;&nbsp;<b>-i, --folder_in PATH</b>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Input folder to scan for videos (default: current directory)<br>
+&nbsp;&nbsp;<b>-O, --folder_out PATH</b>&nbsp;&nbsp;&nbsp;&nbsp;Destination folder for output files (default: beside source)<br>
+&nbsp;&nbsp;<b>-p, --preset NAME</b>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Preset configuration (see list below)<br>
+&nbsp;&nbsp;<b>-e, --encoder NAME</b>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Encoder (auto, svt_av1, x265, nvenc_h265, qsv_h265, amf_h265)<br>
+&nbsp;&nbsp;<b>-q, --quality RF</b>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Rate Factor quality (0-51, default: 27)<br>
+&nbsp;&nbsp;<b>-f, --format mp4|mkv</b>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Container format (default: mp4)<br>
+&nbsp;&nbsp;<b>-ae, --audio_encoder</b>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Audio codec (copy, aac, ac3, mp3, flac - default: copy)<br>
+&nbsp;&nbsp;<b>-ab, --audio_bitrate</b>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Audio bitrate in kbps (e.g. 128, 160)<br>
+&nbsp;&nbsp;<b>--no-recursive</b>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Disable subfolder traversal (process top level only)<br><br>
+
+<b style="color: {primary};">RECOMMENDED PRESETS:</b><br>
+&nbsp;&nbsp;<b>av1_efficient</b>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Modern SVT-AV1 10-bit: 25-35% smaller than HEVC, pristine clarity (RF 27)<br>
+&nbsp;&nbsp;<b>hevc_optimal</b>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Fine-tuned x265 10-bit (no-sao, dark-scene AQ 3, RF 25)<br>
+&nbsp;&nbsp;<b>nvenc_optimal</b>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;High-efficiency NVIDIA hardware GPU encoding (RF 25)<br>
+&nbsp;&nbsp;<b>balanced</b>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Everyday x265 balance (RF 27)<br>
+&nbsp;&nbsp;<b>fast</b>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Quick x265 encoding (RF 27)<br>
+&nbsp;&nbsp;<b>high_quality</b>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;High fidelity archive (RF 23)<br>
+&nbsp;&nbsp;<b>archive</b>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Maximum preservation (RF 20)<br><br>
+
+<b style="color: {primary};">PRACTICAL EXAMPLES:</b><br>
+&nbsp;&nbsp;# 1. Launch GUI:<br>
+&nbsp;&nbsp;<b>vconv</b><br><br>
+&nbsp;&nbsp;# 2. Batch convert a folder to modern AV1 with optimal size:<br>
+&nbsp;&nbsp;<b>vconv --batch -i ~/Videos/Raw -O ~/Videos/AV1 -p av1_efficient</b><br><br>
+&nbsp;&nbsp;# 3. High detail 10-bit HEVC transcode into MKV:<br>
+&nbsp;&nbsp;<b>vconv --batch -i /media/movies -p hevc_optimal -f mkv</b><br><br>
+&nbsp;&nbsp;# 4. Fast GPU encoding with NVIDIA NVENC:<br>
+&nbsp;&nbsp;<b>vconv --batch -i /media/series -e nvenc_h265 -q 25</b><br><br>
+&nbsp;&nbsp;# 5. Inspect video &amp; audio streams without encoding:<br>
+&nbsp;&nbsp;<b>vconv --analyze -i /media/downloads</b><br>
+</div>
+"""
+        cli_text.setHtml(cli_html)
+        layout.addWidget(cli_text)
+
+        btn_box = QHBoxLayout()
+        btn_box.addStretch()
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(dlg.accept)
+        btn_box.addWidget(close_btn)
+        layout.addLayout(btn_box)
+
+        dlg.exec()
 
     def _show_shortcuts(self):
         QMessageBox.information(self, "Keyboard Shortcuts",

@@ -450,6 +450,12 @@ class EncoderManager:
             'best_for': 'Smallest files, future-proof, 10-bit capable',
             'requires': 'None (CPU-only, slower)'
         },
+        'copy': {
+            'name': 'Copy (Passthrough)',
+            'description': 'Direct stream copy (lossless, instantaneous remux)',
+            'best_for': 'Container remuxing (MKV ↔ MP4) and audio-only transcoding without video re-encode',
+            'requires': 'FFmpeg (installed)'
+        },
     }
 
     # Legacy HandBrakeCLI encoder mapping (kept for backward compatibility;
@@ -494,6 +500,10 @@ class EncoderManager:
             if enc not in seen:
                 seen.add(enc)
                 out.append(enc)
+        # Direct stream copy (lossless remux via FFmpeg) is always available
+        if 'copy' not in seen:
+            seen.add('copy')
+            out.append('copy')
         return out
 
     def is_available(self, encoder: str) -> bool:
@@ -553,6 +563,8 @@ class EncoderManager:
     def supports_10bit(self, encoder: str) -> bool:
         """True when the family has a 10-bit HandBrake variant (or NVEncC 10-bit)."""
         enc = self.normalize(encoder)
+        if enc == 'copy':
+            return True
         if enc in NVENC_FAMILY_IDS:
             return NVENC_FAMILY_IDS[enc][1]
         pair = HB_FAMILY_IDS.get(enc)
@@ -565,6 +577,8 @@ class EncoderManager:
         preserving the source's color depth instead of down-converting to 8-bit.
         """
         enc = self.normalize(encoder)
+        if enc == 'copy':
+            return 'copy'
         if enc in NVENC_FAMILY_IDS:
             # NVEncC backend — not a HandBrake id; converter handles it.
             return enc
@@ -578,8 +592,11 @@ class EncoderManager:
         return self.HB_ENCODER_MAP.get(enc, enc)
 
     def encode_backend(self, encoder: str) -> str:
-        """'nvenc' when the encoder uses rigaya NVEncC, else 'handbrake'."""
-        return 'nvenc' if self.normalize(encoder) in NVENC_FAMILY_IDS else 'handbrake'
+        """'ffmpeg' for direct copy, 'nvenc' when rigaya NVEncC, else 'handbrake'."""
+        enc = self.normalize(encoder)
+        if enc == 'copy':
+            return 'ffmpeg'
+        return 'nvenc' if enc in NVENC_FAMILY_IDS else 'handbrake'
 
     def is_hardware_encoder(self, encoder: str) -> bool:
         """Check if encoder is hardware accelerated."""

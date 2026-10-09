@@ -37,6 +37,12 @@ def setup_logging(
         log_dir = Path(log_file).parent
 
     log_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        os.chmod(log_dir, 0o700)
+        if log_file is None:
+            os.chmod(log_dir.parent, 0o700)
+    except OSError:
+        pass
 
     if log_file is None:
         log_file = str(log_dir / "vconv.log")
@@ -78,6 +84,12 @@ def setup_logging(
     logger.addHandler(file_handler)
     logger.addHandler(console_handler)
 
+    try:
+        if os.path.exists(log_file):
+            os.chmod(log_file, 0o600)
+    except OSError:
+        pass
+
     # Log startup
     logger.info(f"Logging initialized - level: {logging.getLevelName(level)}")
     logger.debug(f"Log file: {log_file}")
@@ -95,6 +107,8 @@ def get_logger(name: str) -> logging.Logger:
     Returns:
         Logger instance
     """
+    if name.startswith("vconv.") or name == "vconv":
+        return logging.getLogger(name)
     return logging.getLogger(f"vconv.{name}")
 
 

@@ -1,5 +1,50 @@
 {
   "presets": {
+    "av1_efficient": {
+      "name": "AV1 High Efficiency",
+      "description": "Modern SVT-AV1 10-bit: 25-35% smaller than HEVC with pristine visual clarity",
+      "encoder": "svt_av1",
+      "quality": 27,
+      "audio_encoder": "copy",
+      "audio_bitrate": 128,
+      "preset": "6",
+      "filters": {
+        "denoise": "off",
+        "deinterlace": "auto"
+      }
+    },
+    "hevc_optimal": {
+      "name": "HEVC Optimal Detail",
+      "description": "Fine-tuned x265 10-bit with no-sao and dark-scene AQ for crisp textures and compact size",
+      "encoder": "x265",
+      "quality": 25,
+      "audio_encoder": "copy",
+      "audio_bitrate": 128,
+      "preset": "medium",
+      "filters": {
+        "denoise": "off",
+        "deinterlace": "auto"
+      },
+      "advanced": {
+        "no-sao": 1,
+        "aq-mode": 3,
+        "psy-rd": 1.5,
+        "rc-lookahead": 50,
+        "b-intra": 1
+      }
+    },
+    "nvenc_optimal": {
+      "name": "NVENC Optimal (GPU)",
+      "description": "Fast NVIDIA hardware encoding with balanced quality and size",
+      "encoder": "nvenc_h265",
+      "quality": 25,
+      "audio_encoder": "copy",
+      "audio_bitrate": 128,
+      "filters": {
+        "denoise": "off",
+        "deinterlace": "auto"
+      }
+    },
     "fast": {
       "name": "Fast",
       "description": "Quick encoding with good quality/size balance",

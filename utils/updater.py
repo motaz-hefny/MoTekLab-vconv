@@ -4,6 +4,7 @@ Update Checker - Checks GitHub for new vconv releases
 import re
 import json
 import logging
+import os
 import urllib.request
 import urllib.error
 from datetime import datetime, timedelta
@@ -91,7 +92,7 @@ def check_for_updates(current_version: str, cache_file: Optional[str] = None,
             GITHUB_API,
             headers={
                 'Accept': 'application/vnd.github.v3+json',
-                'User-Agent': 'vconv-update-checker/9.2.2'
+                'User-Agent': f'vconv-update-checker/{current_version}'
             }
         )
         with urllib.request.urlopen(req, timeout=10) as resp:
@@ -144,6 +145,10 @@ def _cache_path() -> str:
     """Get path to update check cache file."""
     cache_dir = Path.home() / ".config" / "vconv"
     cache_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        os.chmod(cache_dir, 0o700)
+    except OSError:
+        pass
     return str(cache_dir / "update_cache.json")
 
 
@@ -163,8 +168,17 @@ def _read_cache(cache_file: str, ttl_hours: int) -> Optional[dict]:
 
 
 def _write_cache(cache_file: str, data: dict):
-    """Write update check result to cache."""
+    """Write update check result to cache atomically."""
     try:
-        Path(cache_file).write_text(json.dumps(data, indent=2))
+        tmp_file = f"{cache_file}.tmp.{os.getpid()}"
+        with open(tmp_file, 'w') as f:
+            json.dump(data, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        try:
+            os.chmod(tmp_file, 0o600)
+        except OSError:
+            pass
+        os.replace(tmp_file, cache_file)
     except OSError as e:
         logger.debug(f"Cache write failed: {e}")

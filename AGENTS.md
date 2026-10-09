@@ -193,8 +193,138 @@ Verified during the v9.6.2 format-bug investigation. Do not fix unless explicitl
 5. **Docs staleness**: `docs/upgrade_audit.md` header says "Current version: v9.2.1" (historical audit snapshot — arguably fine); `docs/future_plan.md` release table is stale.
 6. **Presets** (`presets/default_presets.json`) contain NO `format` key — presets cannot select output format. If a user expects a preset to set MP4/MKV, it won't.
 
+## Audit Backlog 2026-10-09 (v9.8.0 — VERIFIED, NOT FIXED)
+Full report: agent artifact `vconv_full_review_report.md` (conversation 7488cdad). Do not fix unless asked; proposed plan = 9.8.1 (D1–D4, Q3, H1, H2, guide FAQ, U1/U5) → 9.9.0 (Q1, Q2, UI, CI) → 9.10.0 (S1–S4).
+- **D1 (reproduced)** `vconv.py:203-205` writes argparse defaults (27/auto/mp4) over the loaded config on EVERY launch → saved Quality/Encoder/Format lost; next `config.save()` persists the loss. Fix: flag defaults `None`, apply only if given.
+- **D2** `_copy_metadata` reads the WHOLE source (`converter.py:809`, also 920/965) AND whole output (`:341`, `:498`) into RAM → peak ≈ src+dst (+`bytes(dst)` copy) → OOM kill after long encodes. Fix: read only `moov` (HandBrake writes it at the END — no `--optimize` passed — so in-place ilst growth shifts no chunk offsets).
+- **D3** `_write_bytes(dest_path)` (`:391`, `:539`) truncates+rewrites the finished encode in place → crash/power loss mid-write destroys it. Fix: temp file + fsync + `os.replace`.
+- **D4** `_find_atom` / `_apply_faststart` ignore 64-bit atom sizes (`size==1`) → outputs >4 GiB very likely fail binary metadata silently and fall back to ffmpeg (drops custom tags). Only the STEP-1 walker (`:865`) handles `size==1`. Needs a synthetic >4 GiB test.
+- **Q2** `_analyze_files_batch` (`ui/main_window.py:847`) runs ffprobe synchronously on the GUI thread (30 s timeout/file, NO processEvents); its docstring "in background" is false.
+- **Q3** `Config.save` (`utils/config.py:108`) and `_save_queue` (`core/queue.py:152`) are non-atomic `open('w')`. (`update_progress` is currently unused by the GUI.)
+- **S1** self-update runs `pkexec dpkg -i` with NO checksum/signature (no hashlib anywhere). **S2** download path is predictable `/tmp/<asset>` → use `mkdtemp`. **S3** ffmpeg/NVEncC auto-downloaded at startup (default ON), unverified, prepended to PATH. **S4** `~/.config/vconv` 775 / files 664 → should be 700/600 (logs hold video paths). **S5** `utils/tools.py:install_via_system` = dead `shell=True`+`sudo` code → delete. Zip extraction is NOT vulnerable (stdlib sanitizes) — don't "fix" it.
+- **H1** `setup.py:49,51,97,126-128` use `APP_NAME` instead of `CLI_NAME`. **H3** no CI (`.github/workflows` absent).
+- **UI (seen in offscreen render)**: "Crop _Color (v9.7)" label (version tag + mnemonic underscore); settings column clipped under scrollbar at 1250 px; AV1 Speed visible for non-AV1 encoders; file-table headers truncated; log prints raw tuple `((6, 1, 1))`; light-mode `info` #00B4D8 on white = 2.46:1 (fails WCAG AA); CONVERT toolbar button uses a different font. Offscreen `grab()` shows transparent (alpha 0) gaps as white — NOT a theme bug.
+- **Docs**: user-guide FAQ "How do I update" (`docs/user_guide.md:1336`, `.ar.md:794`) still says `git pull` (stale since 9.7.2 self-update); `user_guide.md:50` says `.mp4` right after choosing MKV. Blog has only `vconv-9.2-launch.mdx` — releases 9.3→9.8 never announced (forum+blog backlog).
+
 ## Version Management
 - **NEVER forget the version bump.** Every change ships with a bumped version — no exceptions. Semver rule: **small change/fix → patch bump** (`9.8.0` → `9.8.1`); **new feature(s)/behaviour change → minor bump** (`9.8.0` → `9.9.0`); breaking change → major. When in doubt, the presence of a new feature means minor.
 - **Single source of truth**: `utils/version.py` (`__version__` and `VERSION`). `vconv.py`, `ui/main_window.py` (window title, status bar, About), and title/status use it via import.
 - Docs that carry the version (update ALL of them in the same commit as the bump): `docs/user_guide.md` (header + footer), `docs/user_guide.ar.md` (header + footer), `README.md`, `CHANGELOG.md` (new dated `## [X.Y.Z]` entry with a `### Changed → - **Version**: A → B` line), `vconv.desktop` (`Comment=`).
 - Release steps are in `docs/release_process.md` — always produce `.deb`, `.AppImage`, + source; builds go to `dist/`.
+
+## Public Release Communication Protocol (Forum First, Blog Second)
+Whenever any release (major, minor, or patch update) is published, the following two-stage communication protocol is mandatory:
+
+1. **Detailed Forum Post (Must be published FIRST)**:
+   - **Target**: `forum.moteklab.com` under the appropriate category (e.g. *Releases / Video Converter*).
+   - **Exhaustive Details**: Complete technical breakdown of all additions, optimizations, dependency shifts, and bug fixes.
+   - **Historical Version Segmentation**: Must explicitly mark which changes occurred in which version, minor version, or patch (e.g., differentiating what was introduced in `v9.8.0`, `v9.7.5`, `v9.7.2`, etc.) so users upgrading across multiple revisions have seamless context.
+   - **Instructions & Artifacts**: Direct download paths, installation commands (`dpkg -i`, AppImage execution, permissions), and upgrade advice.
+
+2. **Concise Blog Post (Published SECOND)**:
+   - **Target**: `moteklab.com` blog (`content/blog/vconv-<version>-launch.mdx`).
+   - **Concise Narrative**: Exactly **2 to 3 paragraphs** highlighting the user-facing value, performance milestones, and major additions.
+   - **Direct Forum Deep-Link**: Must conclude with a clear call-to-action link directing users to the Forum announcement for full technical changelogs, discussion, and troubleshooting.
+
+## Living Documentation & Interruption Resilience Standard
+All agents working on this project (and related MoTekLab projects) must uphold complete operational resilience and documentation integrity:
+
+1. **Continuous Incremental Documentation**:
+   - Document decisions, architecture changes, and progress in real time as tasks proceed, NOT solely at the conclusion of a session.
+   - If an unexpected interruption (e.g., power outage, crash, context reset) occurs, any successor agent or human developer must be able to read the documentation/artifacts and immediately resume work from the exact stopping point without losing context or duplicating effort.
+
+2. **Strict Separation of Internal vs. User-Facing Documentation**:
+   - **Internal Technical Documentation** (`AGENTS.md`, `docs/architecture/`, audit artifacts): Contains low-level implementations, atomic binary surgery details, IPC/concurrency patterns, security models, unpatched backlogs, and non-disclosed engineering nuances.
+   - **User-Facing Documentation** (`docs/user_guide.md`, `docs/user_guide.ar.md`, `README.md`): Written from the end-user's perspective with clear UI steps, tips, and FAQs.
+
+3. **Automatic Help Synchronisation**:
+   - Whenever any UI widget, parameter, CLI flag, preset, or behavior changes in the application, both `docs/user_guide.md` and `docs/user_guide.ar.md` must be updated in tandem in the same change set. Never leave user documentation out of sync with application code.
+
+## Smart Efficiency Guard & Theme Toggle Pattern (v10.0.0)
+1. **Toolbar Theme Toggle**:
+   - Pinned to the top right of the toolbar using an expanding spacer (`QSizePolicy.Policy.Expanding`).
+   - `QToolButton#themeToggleBtn` displays `☀️` in Dark Mode and `🌙` in Light Mode.
+   - `_toggle_theme()` queries `active_theme()` from `ui/theme.py`, toggles to the opposite ('light'/'dark'), persists via `set_mode()`, and re-applies live via `apply_theme()`.
+   - Never hardcode color hexes for the button: all styles live in `ui/theme.py:build_stylesheet` under `QToolButton#themeToggleBtn`.
+
+2. **Pre-flight Bloat Prevention (Smart Efficiency Guard)**:
+   - Evaluated by `FileValidator.check_efficiency(path, media_info, quality, audio_encoder)` in `core/validator.py`.
+   - Flags when source video is already heavily compressed HEVC/AV1/VP9 and target RF <= 28, warning that re-encoding will likely increase file size.
+   - Flags when audio stream is high-bitrate (>384 kbps, e.g. EAC3 768k or DTS) and `audio_encoder == 'copy'`, recommending transcoding to AAC/Opus (128-160 kbps) to save 300+ MB.
+   - Dynamic UI mirror: `self.efficiency_hint_label` (`QLabel#efficiencyHintLabel`) under the Quality slider updates live on file selection, slider ticks, and encoder combo changes.
+   - Batch validation: toolbar `✅ Validate` (`_validate_files`) aggregates efficiency warnings into an advisory modal before encoding.
+
+3. **Post-conversion Size Delta Tracking**:
+   - `MainWindow._on_file_finished`: compares `os.path.getsize(job.input_path)` against `os.path.getsize(output_path)`.
+   - Files table status column updates to `⚠️ +X MB (+Y%)` if the file expanded, or `✅ -X MB (-Y%)` if it shrunk, with full explanatory tooltips.
+   - Logs warning in Activity Log and `~/.config/vconv/logs/vconv.log`.
+
+4. **Unified Subsystem Logging**:
+   - `utils/logging.py:get_logger` guards against nested `vconv.` prefixes.
+   - All modules (`core/converter.py`, `core/validator.py`, etc.) log via `get_logger(...)` so converter command strings, progress, and file statistics are permanently captured in `~/.config/vconv/logs/vconv.log`.
+
+## Light Theme QGroupBox Title Masking Pattern (v10.0.0)
+In the Rosé Light theme, `QGroupBox::title` had its text partially cut through by the group box border line and dark translucent desktop backgrounds.
+- **Root cause**: `QGroupBox::title` lacked `background-color: {p['card']};`, and parent containers (`QMainWindow`, `QDialog`, `QSplitter`, `QWidget#centralWidget`, `QWidget#rightPanel`) had `background: transparent`. The title rendered over transparent margin space overlapping the border line.
+- **Fix in `ui/theme.py` & `ui/main_window.py`**:
+  1. Set `QMainWindow, QDialog, QSplitter, QWidget#centralWidget, QWidget#rightPanel { background: {p['background']}; }`.
+  2. Set `QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; left: 8px; padding: 0 4px; background-color: {p['card']}; color: {p['accent_fg']}; border-radius: 3px; }`.
+  3. Set `central.setObjectName("centralWidget")` in `_create_central_widget` and `panel.setObjectName("rightPanel")` in `_create_right_panel`.
+
+## Dual GUI & Headless CLI Architecture Pattern (v10.0.0)
+MoTekLab Video Encoder runs as both a desktop GUI and a high-performance headless batch CLI tool:
+- **CLI headless mode**: `vconv --batch -i <input_dir> -O <output_dir> [options]`.
+- **GUI mode**: `vconv` or `vconv --gui`.
+- **Preset parity**: `--preset <name>` in CLI loads configurations directly from `presets/default_presets.json` and injects them into `ConversionSettings` (including `encoder`, `quality`, `advanced`, and `encoder_preset`), matching GUI preset behavior.
+- **In-app CLI Reference**: Accessible directly from GUI menu `Help -> 💻 Command Line (CLI) Reference` (`_show_cli_help`) and in terminal via `vconv --help`.
+
+## Researched Optimal Quality/Size Video Presets Pattern (v10.0.0)
+Three state-of-the-art presets added to `presets/default_presets.json` and the GUI preset dropdown:
+1. **`av1_efficient` ("AV1 High Efficiency")**:
+   - Encoder: `svt_av1` (mapped to `svt_av1_10bit`), RF 27, Speed Preset 6, audio copy.
+   - Modern AV1 achieves 25–35% smaller file size than x265 at identical visual quality, with zero color banding due to 10-bit color depth.
+2. **`hevc_optimal` ("HEVC Optimal Detail")**:
+   - Encoder: `x265` (10-bit), RF 25, preset medium, audio copy.
+   - Advanced fine-tuning: `no-sao=1:aq-mode=3:psy-rd=1.5:rc-lookahead=50:b-intra=1`.
+   - `no-sao=1` eliminates plastic/waxy face textures; `aq-mode=3` biases bits towards dark and flat scenes, eliminating shadow posterization and banding without inflating file size.
+3. **`nvenc_optimal` ("NVENC Optimal GPU")**:
+   - Encoder: `nvenc_h265`, RF 25, audio copy. Hardware accelerated encoding for NVIDIA GPUs.
+- All presets strictly preserve source audio (`audio_encoder: "copy"`) per Rule 5.
+
+## Lossless Video Stream Copy (FFmpeg Passthrough) Pattern (v10.0.0)
+HandBrakeCLI does not support video passthrough (`--encoder copy` does not exist). When users want to remux containers (MKV ↔ MP4), add external subtitles, or re-encode only audio without re-encoding video:
+1. **Architecture & Backend**:
+   - `core/encoder.py`: `EncoderManager.encode_backend('copy')` returns `'ffmpeg'`.
+   - `core/converter.py`: `Converter._build_command` routes `'ffmpeg'` backend to `_build_ffmpeg_copy_command(input, output, settings)`.
+   - Command generates: `ffmpeg -y -i <input> -map 0:v? -c:v copy [audio_flags] [sub_flags] -map_metadata 0 -map_chapters 0 [-movflags +faststart] -progress pipe:1 <output>`.
+   - `_convert_file`: Skips redundant `_copy_metadata` since FFmpeg preserves metadata directly.
+   - `_monitor_progress`: Parses FFmpeg `-progress pipe:1` outputs (`progress=end` immediately signals 100%).
+2. **UI & CLI Integration**:
+   - UI: `Copy (Passthrough)` in encoder combo. Quality slider and RF label automatically disable (`RF: N/A (Lossless Copy)`). Efficiency hint informs user: `⚡ Passthrough Active: Video stream is copied directly without re-encoding (instantaneous & 100% lossless). Audio and container settings still apply.`
+   - CLI: `vconv --encoder copy` supported in batch mode without requiring HandBrakeCLI.
+
+## Enriched Media Analysis (Bitrates, FPS, Streams) Pattern (v10.0.0)
+Users need full visibility into video bitrates, container bitrates, audio bitrates, and sample rates to make informed encoding decisions:
+1. **ffprobe Extraction** (`core/analyzer.py`):
+   - `MediaInfo` stores `container_format`, `overall_bitrate`, `video_bitrate`, `framerate`, `bit_depth`, `pix_fmt`, `audio_samplerate`, `audio_streams`, `subtitle_streams`.
+   - Extracts stream `bit_rate` and fallback tags (`BPS`, `BPS-eng`), resolving container total bitrate separately from video stream bitrate.
+   - Audio tracks capture `sample_rate` (formatted to `kHz`), channels with layout, bitrate, language, and title.
+   - Subtitle tracks capture `codec` (upper), language, and title.
+2. **Themed Presentation** (`ui/main_window.py:_analyze_files`):
+   - Renders structured HTML cards inside `QTextEdit` within a dedicated `QDialog`.
+   - Colors sourced directly from `current_palette()` (zero hardcoded hexes).
+   - Filenames escaped with `html.escape` to prevent markup injection.
+   - Headless CLI (`vconv.py:analyze_files_cli`) displays the same comprehensive breakdown.
+
+## Modal Dialog Palette & QSS Specificity Cascade Pattern (v10.0.0)
+When native dialogs (`QMessageBox`, `QDialog`, `QInputDialog`, `QFileDialog`) appear dark/invisible in Light Theme or have transparent backgrounds in Dark Theme:
+1. **Cascade Order**:
+   - In `ui/theme.py`, `QWidget {{ background: transparent; }}` MUST precede `QMainWindow, QDialog, QMessageBox ... {{ background-color: {p['background']}; }}`.
+   - If `QWidget` comes after `QDialog`, its general type rule overrides the dialog's solid background, causing transparent/unpainted windows on X11 offscreen rendering.
+2. **QPalette Alignment**:
+   - In `apply_theme(app, mode)`, `build_palette(resolved)` sets `app.setPalette(...)` for Window, WindowText, Base, AlternateBase, Text, Button, Highlight.
+   - This ensures all standard Qt message boxes and native dialogs inherit the exact Fahhim theme colors even before QSS is applied.
+3. **Dedicated Validation Report Modal**:
+   - `_validate_files` displays a dedicated themed `QDialog` report with scrollable `QTextEdit` when files have issues or optimization warnings, and a concise themed `QMessageBox` when all files are clean.
+
+

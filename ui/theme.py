@@ -8,7 +8,7 @@ tests/test_theme.py; see AGENTS.md "Fahhim Theme Pattern").
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QGuiApplication
+from PyQt6.QtGui import QGuiApplication, QPalette, QColor
 
 PALETTES = {
     'light': {
@@ -21,7 +21,7 @@ PALETTES = {
         'border': '#ecd9dc', 'input': '#ecd9dc',
         'destructive': '#b91c1c',
         'grad_start': '#f43f5e', 'grad_mid': '#e11d48', 'grad_end': '#be123c',
-        'info': '#00B4D8', 'success': '#2ECC71', 'subtle': '#7d5f6a',
+        'info': '#0369a1', 'success': '#2ECC71', 'subtle': '#7d5f6a',
     },
     'dark': {
         'background': '#140e0c', 'foreground': '#f4e3dd',
@@ -53,6 +53,11 @@ def current_palette():
     return PALETTES[_active]
 
 
+def active_theme():
+    """Return the concrete active theme name ('light' or 'dark')."""
+    return _active
+
+
 def current_mode(config):
     return config.get('appearance', 'theme', 'system')
 
@@ -66,17 +71,18 @@ def build_stylesheet(theme_name):
     """Fahhim QSS for one theme. CSS braces are doubled (f-string)."""
     p = PALETTES[theme_name]
     return f"""
-QMainWindow {{ background: {p['background']}; }}
-QDialog {{ background: {p['card']}; color: {p['foreground']}; }}
 QWidget {{ background: transparent; color: {p['foreground']}; }}
+QMainWindow, QDialog, QMessageBox, QInputDialog, QFileDialog, QSplitter, QWidget#centralWidget, QWidget#rightPanel {{ background-color: {p['background']}; color: {p['foreground']}; }}
+QDialog, QMessageBox {{ background-color: {p['background']}; color: {p['foreground']}; }}
+QMessageBox QLabel {{ background-color: transparent; color: {p['foreground']}; font-size: 13px; }}
 QMenuBar {{ background: {p['secondary']}; color: {p['foreground']}; border-bottom: 1px solid {p['border']}; }}
 QMenuBar::item:selected {{ background: {p['accent']}; color: {p['accent_fg']}; }}
 QMenu {{ background: {p['card']}; color: {p['foreground']}; border: 1px solid {p['border']}; }}
 QMenu::item {{ padding: 4px 24px 4px 12px; }}
 QMenu::item:selected {{ background: {p['primary']}; color: {p['primary_fg']}; }}
 QMenu::separator {{ height: 1px; background: {p['border']}; margin: 2px 6px; }}
-QGroupBox {{ border: 1px solid {p['border']}; border-radius: 6px; margin-top: 10px; padding-top: 8px; background: {p['card']}; color: {p['foreground']}; }}
-QGroupBox::title {{ subcontrol-origin: margin; left: 8px; padding: 0 4px; color: {p['accent_fg']}; }}
+QGroupBox {{ border: 1px solid {p['border']}; border-radius: 6px; margin-top: 12px; padding-top: 8px; background: {p['card']}; color: {p['foreground']}; }}
+QGroupBox::title {{ subcontrol-origin: margin; subcontrol-position: top left; left: 8px; padding: 0 4px; background-color: {p['card']}; color: {p['accent_fg']}; border-radius: 3px; }}
 QTabWidget::pane {{ border: 1px solid {p['border']}; background: {p['card']}; top: -1px; }}
 QTabBar::tab {{ background: {p['secondary']}; color: {p['muted_fg']}; padding: 5px 14px; border: 1px solid {p['border']}; border-bottom: none; border-top-left-radius: 4px; border-top-right-radius: 4px; margin-right: 2px; }}
 QTabBar::tab:selected {{ background: {p['card']}; color: {p['primary']}; border-bottom: 2px solid {p['primary']}; }}
@@ -124,7 +130,28 @@ QPushButton#primaryBtn:hover {{ background: {p['grad_mid']}; }}
 QLabel#hwLabel {{ color: {p['info']}; font-size: 11px; }}
 QLabel#statusLabel {{ color: {p['success']}; font-weight: bold; font-size: 13px; }}
 QLabel#audioTracksStatus {{ color: {p['subtle']}; font-size: 10px; }}
+QLabel#efficiencyHintLabel {{ color: {p['accent_fg']}; font-size: 11px; padding: 5px 8px; border-radius: 4px; background: {p['secondary']}; border: 1px solid {p['border']}; }}
+QToolButton#themeToggleBtn {{ font-size: 14px; padding: 2px 8px; border: 1px solid {p['border']}; border-radius: 4px; background: {p['card']}; color: {p['foreground']}; }}
+QToolButton#themeToggleBtn:hover {{ background: {p['accent']}; border-color: {p['primary']}; }}
 """
+
+
+def build_palette(theme_name):
+    """Build a QPalette matching the Fahhim theme tokens."""
+    p = PALETTES[theme_name]
+    pal = QPalette()
+    pal.setColor(QPalette.ColorRole.Window, QColor(p['background']))
+    pal.setColor(QPalette.ColorRole.WindowText, QColor(p['foreground']))
+    pal.setColor(QPalette.ColorRole.Base, QColor(p['card']))
+    pal.setColor(QPalette.ColorRole.AlternateBase, QColor(p['secondary']))
+    pal.setColor(QPalette.ColorRole.Text, QColor(p['foreground']))
+    pal.setColor(QPalette.ColorRole.Button, QColor(p['secondary']))
+    pal.setColor(QPalette.ColorRole.ButtonText, QColor(p['foreground']))
+    pal.setColor(QPalette.ColorRole.Highlight, QColor(p['primary']))
+    pal.setColor(QPalette.ColorRole.HighlightedText, QColor(p['primary_fg']))
+    pal.setColor(QPalette.ColorRole.ToolTipBase, QColor(p['card']))
+    pal.setColor(QPalette.ColorRole.ToolTipText, QColor(p['foreground']))
+    return pal
 
 
 def apply_theme(app, mode):
@@ -147,6 +174,7 @@ def apply_theme(app, mode):
     if not _state['fusion']:
         app.setStyle('Fusion')
         _state['fusion'] = True
+    app.setPalette(build_palette(resolved))
     app.setStyleSheet(build_stylesheet(resolved))
     _state['app'] = app
     _state['mode'] = mode
