@@ -1216,9 +1216,19 @@ class MainWindow(QMainWindow):
 
         splitter.addWidget(self.settings_scroll)
         splitter.addWidget(right_panel)
-        splitter.setSizes([300, 950])
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
+
+        # Dynamic width controller (spec 2026-10-08-dynamic-settings-width).
+        # W = sizes()[0], M = self._manual_width (session-only), H = tabs.sizeHint(),
+        # F = tabs.minimumSizeHint() installed on settings_scroll. The former
+        # fixed setSizes([300, 950]) is replaced by the startup hug below.
+        self.splitter = splitter
+        self._manual_width = False
+        self._width_applying = False
+        self.settings_tabs.currentChanged.connect(self._on_settings_tab_changed)
+        splitter.splitterMoved.connect(self._on_settings_splitter_moved)
+        QTimer.singleShot(0, self._apply_initial_width)
 
     def eventFilter(self, obj, ev):
         """Ignore mouse-wheel changes on settings combos/sliders.
@@ -1248,6 +1258,44 @@ class MainWindow(QMainWindow):
         if hug != current:
             return hug
         return None
+
+    def _current_width_params(self):
+        """(H hug, F floor) for the active tab; floor clamped to the window."""
+        hug_w = self.settings_tabs.sizeHint().width()
+        floor = self.settings_tabs.minimumSizeHint().width()
+        right_min = self.splitter.widget(1).minimumSizeHint().width() or 1
+        floor = max(1, min(floor, max(1, self.splitter.width() - right_min)))
+        return hug_w, floor
+
+    def _apply_width(self):
+        hug_w, floor = self._current_width_params()
+        self.settings_scroll.setMinimumWidth(floor)
+        new_w = self._left_width_action(
+            self.splitter.sizes()[0], hug_w, floor, self._manual_width)
+        if new_w is None:
+            return
+        sizes = self.splitter.sizes()
+        sizes[0] = new_w
+        right_min = self.splitter.widget(1).minimumSizeHint().width() or 1
+        sizes[1] = max(sizes[1], right_min)
+        self._width_applying = True
+        try:
+            self.splitter.setSizes(sizes)
+        finally:
+            self._width_applying = False
+
+    def _on_settings_tab_changed(self, _index):
+        self._apply_width()
+
+    def _on_settings_splitter_moved(self, _pos, _index):
+        # Only real user drags reach here unguarded; programmatic hugs set
+        # _width_applying around setSizes and must never mark manual.
+        if not self._width_applying:
+            self._manual_width = True
+
+    def _apply_initial_width(self):
+        self._manual_width = False
+        self._apply_width()
 
     def _create_left_panel(self):
         panel = QWidget()

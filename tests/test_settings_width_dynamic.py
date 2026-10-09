@@ -131,10 +131,86 @@ def test_reflow():
     gc.collect()
 
 
+def test_startup_hugs_video():
+    win = make_window()
+    settle(win)
+    h, w = hug(win), left_w(win)
+    check(f"startup W({w}) ~= H(video)({h})", abs(w - h) <= 8)
+    check(f"startup W({w}) < fixed 300", w < 300)
+    check("floor installed on settings_scroll",
+          win.settings_scroll.minimumWidth() == floor(win))
+    win.close()
+    del win
+    gc.collect()
+
+
+def test_tab_switch_shrinks_and_grows():
+    win = make_window()
+    settle(win)
+    w_video, h_video = left_w(win), hug(win)
+    win.settings_tabs.setCurrentIndex(1)  # Audio
+    QApplication.processEvents()
+    w_audio, h_audio = left_w(win), hug(win)
+    check(f"audio switch: W({w_audio}) ~= H({h_audio})", abs(w_audio - h_audio) <= 8)
+    check("H(audio) < H(video)", h_audio < h_video)
+    check("W(audio) < W(video)", w_audio < w_video)
+    win.settings_tabs.setCurrentIndex(2)  # Subtitles
+    QApplication.processEvents()
+    f_subs = floor(win)
+    check(f"subs switch: W({left_w(win)}) >= F({f_subs})", left_w(win) >= f_subs)
+    check(f"F(subs)({f_subs}) < 300 (reflow holds)", f_subs < 300)
+    win.close()
+    del win
+    gc.collect()
+
+
+def test_manual_sticky_and_never_clip():
+    win = make_window()
+    settle(win)
+    # A real drag: splitterMoved fires with _width_applying False -> manual.
+    win.splitter.splitterMoved.emit(330, 0)
+    check("manual flag set by drag", win._manual_width is True)
+    win.splitter.setSizes([330, 900])
+    QApplication.processEvents()
+    w_before = left_w(win)
+    win.settings_tabs.setCurrentIndex(1)  # Audio: H ~190 < 330
+    QApplication.processEvents()
+    check(f"sticky: W kept at {w_before} ({left_w(win)})", left_w(win) == w_before)
+    # Never-clip: park W at the current (audio) floor, switch to the wider
+    # Subtitles floor -> controller must grow W to F(subs).
+    win.splitter.setSizes([floor(win), 900])
+    QApplication.processEvents()
+    w_small, f_audio = left_w(win), floor(win)
+    win.settings_tabs.setCurrentIndex(2)
+    QApplication.processEvents()
+    check(f"never-clip: W grew {w_small} -> {left_w(win)} >= F(subs) {floor(win)}",
+          left_w(win) >= floor(win) and floor(win) >= f_audio)
+    win.close()
+    del win
+    gc.collect()
+
+
+def test_programmatic_hug_never_sets_manual():
+    win = make_window()
+    settle(win)
+    win.settings_tabs.setCurrentIndex(1)
+    QApplication.processEvents()
+    win.settings_tabs.setCurrentIndex(0)
+    QApplication.processEvents()
+    check("hug writes keep manual=False", win._manual_width is False)
+    win.close()
+    del win
+    gc.collect()
+
+
 def main():
     app = QApplication.instance() or QApplication([])
     test_helper_truth_table()
     test_reflow()
+    test_startup_hugs_video()
+    test_tab_switch_shrinks_and_grows()
+    test_manual_sticky_and_never_clip()
+    test_programmatic_hug_never_sets_manual()
     print(f"\nRESULT: ALL PASS ({PASS} checks)")
     return 0
 
