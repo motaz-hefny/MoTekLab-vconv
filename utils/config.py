@@ -30,6 +30,9 @@ class Config:
             'log_level': 'info',
             'auto_update_tools': True
         },
+        'appearance': {
+            'theme': 'system'
+        },
         'defaults': {
             'encoder': 'auto',
             'quality': 27,

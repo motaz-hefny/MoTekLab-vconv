@@ -42,6 +42,7 @@ from utils.updater import check_for_updates, UpdateInfo
 from utils.i18n import I18n
 from utils.logging import get_logger
 from utils.version import __version__, APP_NAME, APP_DISPLAY_NAME
+from ui.theme import apply_theme, current_mode, current_palette, set_mode
 from utils.xdg_integration import ensure_xdg_integration
 
 logger = get_logger("ui.main_window")
@@ -2841,6 +2842,7 @@ def launch(config: Config, i18n: I18n, args=None, encoder_manager=None):
     app.setApplicationName(APP_NAME)
     app.setApplicationVersion(__version__)
     app.setDesktopFileName("vconv")
+    apply_theme(app, current_mode(config))
 
     # Register icon theme paths for proper icon lookup
     from PyQt6.QtCore import QStandardPaths

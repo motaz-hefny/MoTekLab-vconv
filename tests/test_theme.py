@@ -141,6 +141,17 @@ def test_config_persistence():
     tmp.cleanup()
 
 
+def test_default_config_section():
+    check("DEFAULT_CONFIG has appearance.theme == system",
+          Config.DEFAULT_CONFIG.get('appearance', {}).get('theme') == 'system')
+
+
+def test_launch_applies_theme():
+    src = (ROOT / 'ui' / 'main_window.py').read_text()
+    check("launch() applies theme before MainWindow",
+          'apply_theme(app, current_mode(config))' in src)
+
+
 def main():
     app = QApplication.instance() or QApplication([])
     test_palette_tokens_and_fahhim_hexes()
@@ -148,6 +159,8 @@ def main():
     test_resolve_system_mapping()
     test_apply_theme_switches_stylesheet()
     test_config_persistence()
+    test_default_config_section()
+    test_launch_applies_theme()
     print(f"\nRESULT: ALL PASS ({PASS} checks)")
     return 0
 
