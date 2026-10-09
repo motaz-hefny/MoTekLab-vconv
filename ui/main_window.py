@@ -1104,25 +1104,37 @@ class MainWindow(QMainWindow):
         video_files = [x for x in video_files if not (x in seen or seen.add(x))]
 
         if video_files:
-            start_row = len(self.files)
-            self.files.extend(video_files)
-            if dropped_folders:
-                # Use parent of first dropped folder to preserve folder name in output
-                for path in urls:
-                    if os.path.isdir(path):
-                        self.source_root = str(Path(path).parent)
-                        break
-            else:
-                self.source_root = self._compute_source_root()
-            self._set_busy_cursor()
-            self._analyze_files_batch(video_files)
-            self._clear_busy_cursor()
-            self._refresh_file_table()
-            self._update_status_bar()
-            self._log(f"Added {len(video_files)} file(s) via drag-drop")
-            if self.config.get('queue', 'auto_add', False):
-                for row_idx in range(start_row, len(self.files)):
-                    self._add_file_to_queue(row_idx)
+            new_files = [x for x in video_files if x not in self.files]
+            re_dropped = [x for x in video_files if x in self.files]
+
+            if new_files:
+                start_row = len(self.files)
+                self.files.extend(new_files)
+                if dropped_folders:
+                    # Use parent of first dropped folder to preserve folder name in output
+                    for path in urls:
+                        if os.path.isdir(path):
+                            self.source_root = str(Path(path).parent)
+                            break
+                else:
+                    self.source_root = self._compute_source_root()
+                self._set_busy_cursor()
+                self._analyze_files_batch(new_files)
+                self._clear_busy_cursor()
+                self._refresh_file_table()
+                self._update_status_bar()
+                self._log(f"Added {len(new_files)} file(s) via drag-drop")
+                if self.config.get('queue', 'auto_add', True):
+                    for row_idx in range(start_row, len(self.files)):
+                        self._add_file_to_queue(row_idx)
+
+            # Re-dropped files already in files table (e.g. after clearing queue)
+            if re_dropped and self.config.get('queue', 'auto_add', True):
+                queued_inputs = {j.input_path for j in self.queue_manager.jobs}
+                for vf in re_dropped:
+                    if vf not in queued_inputs:
+                        row_idx = self.files.index(vf)
+                        self._add_file_to_queue(row_idx)
 
         if subtitle_files:
             # Link dropped subtitles to selected video file
@@ -1269,7 +1281,7 @@ class MainWindow(QMainWindow):
         settings_menu.addAction(self.act_auto_tools)
 
         self.act_auto_add_queue = QAction("Auto-Add Files to Conversion Queue", self)
-        auto_add_queue = self.config.get('queue', 'auto_add', False)
+        auto_add_queue = self.config.get('queue', 'auto_add', True)
         self.act_auto_add_queue.setCheckable(True)
         self.act_auto_add_queue.setChecked(auto_add_queue)
         self.act_auto_add_queue.triggered.connect(self._toggle_auto_add_queue)
@@ -1948,8 +1960,8 @@ class MainWindow(QMainWindow):
         btn_queue_clear.clicked.connect(self._clear_queue)
         queue_btn_layout.addWidget(btn_queue_clear)
         btn_reset = QPushButton("🔄 Reset All")
-        btn_reset.setToolTip("Reset all settings, files list, and conversion queue back to clean defaults")
-        btn_reset.clicked.connect(self._reset_defaults)
+        btn_reset.setToolTip("Clear all files to convert and the conversion queue (preserves encoder and quality settings)")
+        btn_reset.clicked.connect(self._reset_right_panel)
         queue_btn_layout.addWidget(btn_reset)
         queue_btn_layout.addStretch()
         queue_layout.addLayout(queue_btn_layout)
@@ -2196,21 +2208,32 @@ class MainWindow(QMainWindow):
         files, _ = QFileDialog.getOpenFileNames(self, "Select video files", initial,
             "Video Files (*.mkv *.mp4 *.avi *.mov *.webm *.wmv *.flv *.m4v *.ts *.m2ts)")
         if files:
-            start_row = len(self.files)
-            self.files.extend(files)
-            self.source_root = self._compute_source_root()
-            self.last_folder = os.path.dirname(files[0])
-            self.config.set('defaults', 'last_folder', self.last_folder)
-            self.config.save()
-            self._set_busy_cursor()
-            self._analyze_files_batch(files)
-            self._clear_busy_cursor()
-            self._refresh_file_table()
-            self._update_status_bar()
-            self._log(f"Added {len(files)} file(s)")
-            if self.config.get('queue', 'auto_add', False):
-                for row_idx in range(start_row, len(self.files)):
-                    self._add_file_to_queue(row_idx)
+            new_files = [x for x in files if x not in self.files]
+            re_dropped = [x for x in files if x in self.files]
+
+            if new_files:
+                start_row = len(self.files)
+                self.files.extend(new_files)
+                self.source_root = self._compute_source_root()
+                self.last_folder = os.path.dirname(new_files[0])
+                self.config.set('defaults', 'last_folder', self.last_folder)
+                self.config.save()
+                self._set_busy_cursor()
+                self._analyze_files_batch(new_files)
+                self._clear_busy_cursor()
+                self._refresh_file_table()
+                self._update_status_bar()
+                self._log(f"Added {len(new_files)} file(s)")
+                if self.config.get('queue', 'auto_add', True):
+                    for row_idx in range(start_row, len(self.files)):
+                        self._add_file_to_queue(row_idx)
+
+            if re_dropped and self.config.get('queue', 'auto_add', True):
+                queued_inputs = {j.input_path for j in self.queue_manager.jobs}
+                for vf in re_dropped:
+                    if vf not in queued_inputs:
+                        row_idx = self.files.index(vf)
+                        self._add_file_to_queue(row_idx)
 
     def _compute_source_root(self):
         if not self.files:
@@ -2237,26 +2260,38 @@ class MainWindow(QMainWindow):
                 videos.extend(base_path.rglob(f"*{ext.upper()}"))
             videos = list(set(str(v) for v in videos))[:500]
             if videos:
-                start_row = len(self.files)
-                self.files.extend(videos)
-                # Auto-match subtitles from this folder
-                matched = self._auto_match_subtitles(videos)
-                for vf, subs in matched.items():
-                    if vf not in self.file_subtitles:
-                        self.file_subtitles[vf] = []
-                    for sub in subs:
-                        if sub not in self.file_subtitles[vf]:
-                            self.file_subtitles[vf].append(sub)
-                self._set_busy_cursor()
-                self._analyze_files_batch(videos)
-                self._clear_busy_cursor()
-                self._refresh_file_table()
-                self._update_status_bar()
-                self._log(f"Added {len(videos)} file(s) from folder")
-                if self.config.get('queue', 'auto_add', False):
-                    for row_idx in range(start_row, len(self.files)):
-                        self._add_file_to_queue(row_idx)
-                QMessageBox.information(self, "Files Added", f"Added {len(videos)} video files!")
+                new_files = [x for x in videos if x not in self.files]
+                re_dropped = [x for x in videos if x in self.files]
+
+                if new_files:
+                    start_row = len(self.files)
+                    self.files.extend(new_files)
+                    # Auto-match subtitles from this folder
+                    matched = self._auto_match_subtitles(new_files)
+                    for vf, subs in matched.items():
+                        if vf not in self.file_subtitles:
+                            self.file_subtitles[vf] = []
+                        for sub in subs:
+                            if sub not in self.file_subtitles[vf]:
+                                self.file_subtitles[vf].append(sub)
+                    self._set_busy_cursor()
+                    self._analyze_files_batch(new_files)
+                    self._clear_busy_cursor()
+                    self._refresh_file_table()
+                    self._update_status_bar()
+                    self._log(f"Added {len(new_files)} file(s) from folder")
+                    if self.config.get('queue', 'auto_add', True):
+                        for row_idx in range(start_row, len(self.files)):
+                            self._add_file_to_queue(row_idx)
+
+                if re_dropped and self.config.get('queue', 'auto_add', True):
+                    queued_inputs = {j.input_path for j in self.queue_manager.jobs}
+                    for vf in re_dropped:
+                        if vf not in queued_inputs:
+                            row_idx = self.files.index(vf)
+                            self._add_file_to_queue(row_idx)
+
+                QMessageBox.information(self, "Files Added", f"Added {len(videos)} video file(s)!")
             else:
                 QMessageBox.information(self, "Info", "No video files found")
 
@@ -2717,8 +2752,25 @@ class MainWindow(QMainWindow):
         self.config.save()
         QMessageBox.information(self, "Settings", "Current settings saved as defaults!")
 
+    def _reset_right_panel(self):
+        """Reset only the files to convert and the conversion queue (right side of the UI),
+        preserving all user-selected encoder, quality RF, audio, and format settings."""
+        if QMessageBox.question(
+            self, "Reset Files & Queue",
+            "Clear all files to convert and the conversion queue?\n\n(Your encoder, quality, and audio settings will be preserved.)"
+        ) == QMessageBox.StandardButton.Yes:
+            self._clear_files()
+            self._clear_queue()
+            self._update_efficiency_hint()
+            self.status_label.setText("Ready")
+            self._log("Cleared files to convert and conversion queue (settings preserved)")
+            QMessageBox.information(
+                self, "Reset Complete",
+                "Files to convert and conversion queue have been cleared.\nEncoder and quality settings were preserved."
+            )
+
     def _reset_defaults(self):
-        if QMessageBox.question(self, "Reset All", "Reset all settings, files list, and conversion queue to defaults?") == QMessageBox.StandardButton.Yes:
+        if QMessageBox.question(self, "Reset Settings to Defaults", "Reset all encoder, audio, and application settings to defaults?") == QMessageBox.StandardButton.Yes:
             self.config.reset_to_defaults()
             self.config.load()
             self.quality = 27
@@ -2739,12 +2791,12 @@ class MainWindow(QMainWindow):
                 self.output_default_radio.setChecked(True)
             if hasattr(self, 'output_dir_edit'):
                 self.output_dir_edit.setText('')
-            self._clear_files()
-            self._clear_queue()
+            if hasattr(self, 'act_auto_add_queue'):
+                self.act_auto_add_queue.setChecked(True)
             self._update_efficiency_hint()
-            self.status_label.setText("Ready — reset all to defaults")
-            self._log("Reset all settings, files, and conversion queue to clean defaults")
-            QMessageBox.information(self, "Reset Complete", "All settings, files list, and conversion queue have been reset to defaults!")
+            self.status_label.setText("Ready — settings reset to defaults")
+            self._log("Reset application settings to clean defaults")
+            QMessageBox.information(self, "Reset Complete", "All settings have been reset to defaults!")
 
     def _start_conversion(self):
         if not self.files:

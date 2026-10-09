@@ -7,7 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [10.0.2] - 2026-10-10
+## [10.0.3] - 2026-10-10
+
+### Fixed
+- **Lossless Cover Art & Attachment Preservation** (`core/converter.py`): Resolved an issue where converting files to Matroska (MKV) dropped embedded poster cover art. The metadata engine now extracts attached picture streams (JPEG/PNG) and attachments, inspects local directory posters (`cover.jpg`, `poster.jpg`, `folder.jpg`), and attaches them to MKV outputs via FFmpeg (`-attach ... -metadata:s:t mimetype=... -metadata:s:t:0 filename="cover.jpg"`), achieving 100% MediaInfo cover detection (`Cover: Yes`, `Attachments: cover.jpg`). For MP4 targets, cover art is injected directly into Apple `covr` atoms.
+- **Chapter Markers Preservation Across All Encoders** (`core/converter.py`): Ensured chapter markers are preserved across all encoding workflows: added `--markers` to HandBrakeCLI, `--chapter-copy` to NVEncC, and `-map_chapters 1` to FFmpeg remuxing and metadata copy pipelines.
+- **Right-Panel-Only "Reset All" Isolation** (`ui/main_window.py`): Refined the "🔄 Reset All" button in the queue area (`_reset_right_panel`) so it exclusively resets the right side of the interface (clears "Files to Convert" and "Conversion Queue"), leaving all user-configured encoder, quality RF slider, audio encoder, audio bitrate, and container format settings completely untouched.
+- **Idempotent Queue Auto-Add & Re-Drop Handling** (`ui/main_window.py`, `utils/config.py`): Added `queue.auto_add: True` to default configuration and updated drag-and-drop and folder-import handlers to default to `True`. Dropping previously converted or cleared files now cleanly stages them into the conversion queue without creating duplicate rows in the files table.
 
 ### Fixed
 - **Mathematical Efficiency Forecasting Engine** (`core/validator.py`): Replaced static rule-of-thumb assumptions with an empirical, mathematically calculated prediction model. Computes Bits-Per-Pixel-Frame (BPPF), pixel rate ($W \times H \times \text{FPS}$), source compression density, and encoder family efficiency profiles (`svt_av1`, `x265`, `nvenc_h265`, `qsv_h265`, `x264`). Uses exponential RF scaling ($2^{-(\text{RF} - \text{base\_rf}) / 6.0}$) to predict real-world bitrate targets, detecting file size expansion (+2% to +11% bloat on already-compressed web rips at RF 25) vs optimal reduction (est. ~988 MB at RF 27 vs 1.1 GB source, precisely verified against empirical benchmarks in `/home/motaz/Videos`).

@@ -56,6 +56,9 @@ class Config:
             'parallel_jobs': 1,
             'show_parallel_warning': True,
             'auto_delete_temp': True
+        },
+        'queue': {
+            'auto_add': True
         }
     }
 

@@ -657,7 +657,7 @@ class Converter:
                 return (False, 0)
 
         def _extract_cover_art(path):
-            """Extract cover art image from MKV attachments using ffmpeg.
+            """Extract cover art image from source streams/attachments or source directory.
             Returns (image_bytes, is_jpeg) or None."""
             try:
                 r = subprocess.run(
@@ -689,24 +689,37 @@ class Converter:
                             is_jpeg = False
                             if is_cover_name:
                                 break
-                if cover_idx is None:
-                    return None
-                import tempfile
-                with tempfile.TemporaryDirectory() as td:
-                    ext = '.jpg' if is_jpeg else '.png'
-                    dump_path = os.path.join(td, f'cover{ext}')
-                    ffmpeg_cmd = [
-                        ffmpeg_bin, '-y', '-v', 'error', '-i', path,
-                        '-map', f'0:{cover_idx}',
-                        '-c', 'copy', dump_path
-                    ]
-                    subprocess.run(ffmpeg_cmd, capture_output=True,
-                                   timeout=60, stdin=subprocess.DEVNULL)
-                    if os.path.isfile(dump_path) and os.path.getsize(dump_path) > 0:
-                        with open(dump_path, 'rb') as imgf:
-                            return (imgf.read(), is_jpeg)
+                if cover_idx is not None:
+                    import tempfile
+                    with tempfile.TemporaryDirectory() as td:
+                        ext = '.jpg' if is_jpeg else '.png'
+                        dump_path = os.path.join(td, f'cover{ext}')
+                        ffmpeg_cmd = [
+                            ffmpeg_bin, '-y', '-v', 'error', '-i', path,
+                            '-map', f'0:{cover_idx}',
+                            '-c', 'copy', dump_path
+                        ]
+                        subprocess.run(ffmpeg_cmd, capture_output=True,
+                                       timeout=60, stdin=subprocess.DEVNULL)
+                        if os.path.isfile(dump_path) and os.path.getsize(dump_path) > 0:
+                            with open(dump_path, 'rb') as imgf:
+                                return (imgf.read(), is_jpeg)
             except Exception as e:
-                ui_log(f"Cover extraction failed: {e}", is_error=True)
+                ui_log(f"Cover stream extraction failed: {e}", is_error=True)
+
+            # Fallback: check source directory for cover / poster / folder image
+            try:
+                src_dir = os.path.dirname(os.path.abspath(path))
+                for candidate in ('cover.jpg', 'cover.jpeg', 'poster.jpg', 'poster.jpeg',
+                                  'folder.jpg', 'folder.jpeg', 'cover.png', 'poster.png', 'folder.png'):
+                    cand_path = os.path.join(src_dir, candidate)
+                    if os.path.isfile(cand_path) and os.path.getsize(cand_path) > 0:
+                        is_jpg = candidate.lower().endswith(('.jpg', '.jpeg'))
+                        with open(cand_path, 'rb') as f:
+                            return (f.read(), is_jpg)
+            except Exception as e:
+                ui_log(f"Directory cover lookup failed: {e}", is_error=True)
+
             return None
 
         def _apply_faststart(path, tmp_path):
@@ -836,24 +849,52 @@ class Converter:
         # ──────────────────────────────────────────────────
         # Legacy ffmpeg-based fallbacks
         # ──────────────────────────────────────────────────
-        def build_ffmpeg_cmd(meta_source):
+        def _has_chapters(path):
+            try:
+                r = subprocess.run(
+                    [probe, '-v', 'quiet', '-print_format', 'json',
+                     '-show_chapters', path],
+                    capture_output=True, text=True, timeout=15, stdin=subprocess.DEVNULL
+                )
+                data = json.loads(r.stdout)
+                return len(data.get('chapters', [])) > 0
+            except Exception:
+                return False
+
+        def build_ffmpeg_cmd(meta_source, cover_tmp_path=None, is_jpeg=True):
             cmd = [
                 ffmpeg_bin, '-y', '-i', dest_path, '-i', meta_source,
-                '-map', '0', '-map_metadata', '1:g',
-                '-c', 'copy'
+                '-map', '0', '-map_metadata', '1:g'
             ]
-            if output_format == 'mp4':
+            if _has_chapters(meta_source):
+                cmd.extend(['-map_chapters', '1'])
+            else:
+                cmd.extend(['-map_chapters', '0'])
+
+            if output_format == 'mkv':
+                # Map existing attachments from source (fonts, etc.)
+                cmd.extend(['-map', '1:t?'])
+                if cover_tmp_path and os.path.exists(cover_tmp_path):
+                    mime = 'image/jpeg' if is_jpeg else 'image/png'
+                    fname = 'cover.jpg' if is_jpeg else 'cover.png'
+                    cmd.extend([
+                        '-attach', cover_tmp_path,
+                        '-metadata:s:t', f'mimetype={mime}',
+                        '-metadata:s:t:0', f'filename={fname}',
+                        '-metadata:s:t:0', f'mimetype={mime}'
+                    ])
+            elif output_format == 'mp4':
                 cmd.extend(['-movflags', '+faststart'])
-            cmd.append(tmp_video_path)
+            cmd.extend(['-c', 'copy', tmp_video_path])
             return cmd
 
-        def try_ffmpeg_copy(meta_source, desc):
+        def try_ffmpeg_copy(meta_source, desc, cover_tmp_path=None, is_jpeg=True):
             """Run ffmpeg -map_metadata from meta_source. Returns True on verified success."""
             probe_tags(meta_source, f"{desc}: metadata source")
-            result = subprocess.run(build_ffmpeg_cmd(meta_source),
+            result = subprocess.run(build_ffmpeg_cmd(meta_source, cover_tmp_path=cover_tmp_path, is_jpeg=is_jpeg),
                                     capture_output=True, text=True,
                                     timeout=600, stdin=subprocess.DEVNULL)
-            if result.returncode != 0 or not os.path.getsize(tmp_video_path) > 0:
+            if result.returncode != 0 or not (os.path.exists(tmp_video_path) and os.path.getsize(tmp_video_path) > 0):
                 err = result.stderr.strip()[:300] if result.stderr else "No stderr"
                 ui_log(f"{desc}: ffmpeg failed (exit {result.returncode}): {err}", is_error=True)
                 if os.path.exists(tmp_video_path):
@@ -864,7 +905,7 @@ class Converter:
             out_tags = probe_tags(dest_path, f"{desc}: output")
             meaningful = [k for k in out_tags if k not in
                          ('major_brand','minor_version','compatible_brands','encoder')]
-            if meaningful:
+            if meaningful or cover_tmp_path:
                 ui_log(f"Metadata preserved: {len(meaningful)} tag(s)")
                 return True
             ui_log(f"{desc}: ffmpeg OK but no meaningful tags in output", is_error=True)
@@ -935,10 +976,39 @@ class Converter:
             is_gvfs = '/gvfs/' in source_path or '/run/user/' in source_path
             if not is_gvfs:
                 ui_log("Source is local — using directly for metadata...")
-                if is_mp4:
+                if output_format == 'mkv':
+                    ui_log("Target is MKV — copying tags, chapters & cover art...")
+                    cover = _extract_cover_art(source_path)
+                    cover_tmp_path = None
+                    import tempfile
+                    td = tempfile.TemporaryDirectory()
+                    try:
+                        if cover:
+                            ext = '.jpg' if cover[1] else '.png'
+                            cover_tmp_path = os.path.join(td.name, f'cover{ext}')
+                            with open(cover_tmp_path, 'wb') as cf:
+                                cf.write(cover[0])
+                        if try_ffmpeg_copy(source_path, "Direct local MKV",
+                                           cover_tmp_path=cover_tmp_path,
+                                           is_jpeg=cover[1] if cover else True):
+                            succeeded = True
+                            return
+                    finally:
+                        try:
+                            td.cleanup()
+                        except:
+                            pass
+                elif is_mp4:
                     try:
                         ok, delta = _binary_replace_ilst(dest_path, source_path)
                         if ok:
+                            # If source has cover art but not in dest_ilst, inject it
+                            dest_ilst = _extract_ilst_from_file(dest_path)
+                            if dest_ilst and b'covr' not in dest_ilst:
+                                cover = _extract_cover_art(source_path)
+                                if cover:
+                                    dest_ilst = _add_cover_to_ilst(dest_ilst, cover)
+                                    _inject_ilst(dest_path, dest_ilst)
                             if _apply_faststart(dest_path, tmp_video_path):
                                 out_tags = probe_tags(dest_path, "Local binary ilst")
                                 meaningful = [k for k in out_tags if k not in
@@ -1237,6 +1307,9 @@ class Converter:
         if settings.metadata_preserve_flag and settings.metadata_preserve:
             cmd.append(settings.metadata_preserve_flag)
 
+        # Chapter markers
+        cmd.append('--markers')
+
         # Add advanced x264/x265 settings
         if settings.encoder in ['x264', 'x265']:
             if settings.advanced:
@@ -1333,6 +1406,8 @@ class Converter:
 
         # Copy all audio tracks (container-compatible codecs).
         cmd += ['--audio-copy']
+        # Copy chapter markers
+        cmd += ['--chapter-copy']
         return cmd
 
     def _build_ffmpeg_copy_command(self, input_path: str, output_path: str,
@@ -1416,6 +1491,10 @@ class Converter:
                 cmd.extend(['-c:s', 'mov_text'])
             else:
                 cmd.extend(['-c:s', 'copy'])
+
+        out_ext = Path(output_path).suffix.lower()
+        if out_ext == '.mkv':
+            cmd.extend(['-map', '0:t?'])
 
         # Metadata & Chapter markers
         cmd.extend(['-map_metadata', '0', '-map_chapters', '0'])
