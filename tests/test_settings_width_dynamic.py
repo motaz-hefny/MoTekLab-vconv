@@ -173,7 +173,7 @@ def test_manual_sticky_and_never_clip():
     win.splitter.setSizes([330, 900])
     QApplication.processEvents()
     w_before = left_w(win)
-    win.settings_tabs.setCurrentIndex(1)  # Audio: H ~190 < 330
+    win.settings_tabs.setCurrentIndex(1)  # Audio: H narrower than the pinned width
     QApplication.processEvents()
     check(f"sticky: W kept at {w_before} ({left_w(win)})", left_w(win) == w_before)
     # Never-clip: park W at the current (audio) floor, switch to the wider
@@ -198,6 +198,12 @@ def test_programmatic_hug_never_sets_manual():
     win.settings_tabs.setCurrentIndex(0)
     QApplication.processEvents()
     check("hug writes keep manual=False", win._manual_width is False)
+    # Guard is load-bearing: a splitterMoved emitted while _width_applying is
+    # True (as during a programmatic hug) must NOT flip manual.
+    win._width_applying = True
+    win.splitter.splitterMoved.emit(330, 0)
+    check("guarded splitterMoved keeps manual=False", win._manual_width is False)
+    win._width_applying = False
     win.close()
     del win
     gc.collect()

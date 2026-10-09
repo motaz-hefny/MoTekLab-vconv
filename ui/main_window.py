@@ -1203,7 +1203,7 @@ class MainWindow(QMainWindow):
         # The left panel is taller than small windows; without a scroll area
         # Qt compresses the last boxes (Subtitles squashed — 2026-10-08).
         # Size hints live on the scroll area so the horizontal splitter
-        # drags exactly as before (300/950, stretch 0/1).
+        # drags as before (stretch 0/1).
         self.settings_scroll = QScrollArea()
         self.settings_scroll.setWidget(left_panel)
         self.settings_scroll.setWidgetResizable(True)
