@@ -106,9 +106,14 @@ Post-reflow targets (asserted by tests, exact px font-dependent):
 
 | Tab | H (hug) | F (floor) |
 |---|---|---|
-| Video | ≈ 240–270 (metadata checkbox ≈ 202 drives F) | ≈ 220 |
-| Audio | ≈ 190 — the tab bar (186) is the universal floor | ≈ 190 |
-| Subtitles | ≈ 225 | ≈ 210 |
+| Video | ≈ 233 (metadata checkbox drives F) | ≈ 233 |
+| Audio | ≈ 204 — the tab bar is the universal floor | ≈ 160 |
+| Subtitles | ≈ 280 | ≈ 229 |
+
+Measured values are font/style dependent: the numbers above are the **themed**
+(Fahhim, Tasks 5–7) measurements; the pre-theme baseline was Video 239/239,
+Audio 190/172, Subtitles 284/237. The invariants (`H(Audio) < H(Video)`,
+`F(Audio) < F(Video)`, `F(Subtitles) < 300`, startup `W ≈ H`) hold in both.
 
 ### 3. Edge cases
 
@@ -133,7 +138,8 @@ New `tests/test_settings_width_dynamic.py` (stub-worker pattern from
 4. Manual stickiness: programmatic "drag" → mark manual → tab switches keep `W`.
 5. Never-clip: manual `W < F'` on switch → grows to `F'`.
 6. Pure helper truth table: all `(manual × H/F comparison)` rows.
-7. Reflow asserts: Subtitles group `minimumSizeHint < 300`; Audio page `< 200`;
+7. Reflow asserts: Subtitles group `minimumSizeHint < 300`; Audio page `< 215`
+   (themed; was `< 200` pre-theme);
    GPU label `wordWrap()`; every settings-panel combo horizontal policy
    `Ignored`; `ext_opts_layout` is not nested in `ext_btn_layout`;
    shortened labels present, full copy in tooltips.

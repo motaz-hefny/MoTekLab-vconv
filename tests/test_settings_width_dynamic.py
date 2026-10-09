@@ -20,6 +20,7 @@ from PyQt6.QtCore import pyqtSignal
 from utils.config import Config
 from utils.i18n import I18n
 import ui.main_window as mw
+import ui.theme as theme
 
 PASS = 0
 
@@ -123,7 +124,9 @@ def test_reflow():
     f_video = floor(win)
     win.settings_tabs.setCurrentIndex(1)
     QApplication.processEvents()
-    check(f"audio hug < 200 ({hug(win)})", hug(win) < 200)
+    # Themed app: the Fahhim QSS widens the Audio page (~190 -> 204) via
+    # combo/groupbox padding, so the bound is themed-aware but still < Video.
+    check(f"audio hug < 215 ({hug(win)})", hug(win) < 215)
     check(f"audio floor < video floor ({floor(win)} < {f_video})",
           floor(win) < f_video)
     win.close()
@@ -211,6 +214,9 @@ def test_programmatic_hug_never_sets_manual():
 
 def main():
     app = QApplication.instance() or QApplication([])
+    # Mirror the real app: launch() applies the theme before MainWindow, and the
+    # Fahhim QSS/ Fusion style govern widget metrics (font sizes, padding).
+    theme.apply_theme(app, 'light')
     test_helper_truth_table()
     test_reflow()
     test_startup_hugs_video()
