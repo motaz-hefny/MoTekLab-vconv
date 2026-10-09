@@ -194,6 +194,7 @@ Verified during the v9.6.2 format-bug investigation. Do not fix unless explicitl
 6. **Presets** (`presets/default_presets.json`) contain NO `format` key — presets cannot select output format. If a user expects a preset to set MP4/MKV, it won't.
 
 ## Version Management
+- **NEVER forget the version bump.** Every change ships with a bumped version — no exceptions. Semver rule: **small change/fix → patch bump** (`9.8.0` → `9.8.1`); **new feature(s)/behaviour change → minor bump** (`9.8.0` → `9.9.0`); breaking change → major. When in doubt, the presence of a new feature means minor.
 - **Single source of truth**: `utils/version.py` (`__version__` and `VERSION`). `vconv.py`, `ui/main_window.py` (window title, status bar, About), and title/status use it via import.
-- Docs that carry the version: `docs/user_guide.md` (header + footer), `docs/user_guide.ar.md` (header + footer), `README.md`, `CHANGELOG.md`, `vconv.desktop` (`Comment=`).
+- Docs that carry the version (update ALL of them in the same commit as the bump): `docs/user_guide.md` (header + footer), `docs/user_guide.ar.md` (header + footer), `README.md`, `CHANGELOG.md` (new dated `## [X.Y.Z]` entry with a `### Changed → - **Version**: A → B` line), `vconv.desktop` (`Comment=`).
 - Release steps are in `docs/release_process.md` — always produce `.deb`, `.AppImage`, + source; builds go to `dist/`.

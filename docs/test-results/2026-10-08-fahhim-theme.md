@@ -1,5 +1,7 @@
 # Test results — Fahhim theme (2026-10-08)
 
+Release: **v9.8.0** (version bump `9.7.5 → 9.8.0`, minor — new features)
+
 Spec: `docs/superpowers/specs/2026-10-08-fahhim-theme-design.md`
 
 | Test | Command | Result |

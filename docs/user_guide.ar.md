@@ -1,6 +1,6 @@
 # دليل مستخدم MoTekLab Video Encoder
 
-> الإصدار 9.7.5 | PyQt6 + HandBrakeCLI
+> الإصدار 9.8.0 | PyQt6 + HandBrakeCLI
 > اللغة: العربية
 
 ---
@@ -797,5 +797,5 @@ python3 vconv.py --version
 
 ---
 
-*آخر تحديث: 2026-10-08 | MoTekLab Video Encoder v9.7.5 | أنشئ بواسطة MoTekLab*
+*آخر تحديث: 2026-10-09 | MoTekLab Video Encoder v9.8.0 | أنشئ بواسطة MoTekLab*
 *التوثيق الكامل والتحديثات على [moteklab.com](https://moteklab.com)*
