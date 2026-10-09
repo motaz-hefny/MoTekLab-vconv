@@ -27,7 +27,7 @@ from PyQt6.QtWidgets import (
     QWhatsThis, QGridLayout, QProgressDialog
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSize, QUrl, QTimer, QEvent
-from PyQt6.QtGui import QAction, QFont, QKeySequence, QIcon, QPixmap, QShortcut
+from PyQt6.QtGui import QAction, QActionGroup, QFont, QKeySequence, QIcon, QPixmap, QShortcut
 
 from core.constants import VIDEO_EXTENSIONS
 from core.encoder import EncoderManager
@@ -422,7 +422,7 @@ class ToolsDialog(QDialog):
         state = "outdated" if st.update_available else "current"
         text = f"installed <b>{installed}</b> · latest <b>{latest}</b> · <i>{state}</i>"
         if st.note:
-            text += f"<br><span style='color:#777'>{st.note}</span>"
+            text += f"<br><span style='color:{current_palette()['subtle']}'>{st.note}</span>"
         row["label"].setText(text)
         row["button"].setEnabled(st.update_available)
 
@@ -1066,6 +1066,22 @@ class MainWindow(QMainWindow):
         lang_menu.addAction(act_lang_ar)
 
         settings_menu.addSeparator()
+        appearance_menu = settings_menu.addMenu("&Appearance")
+        self._theme_group = QActionGroup(self)
+        self._theme_group.setExclusive(True)
+        current_theme = current_mode(self.config)
+        for mode, label in (("light", "Light"), ("dark", "Dark"),
+                            ("system", "System")):
+            act_theme = QAction(label, self, checkable=True)
+            act_theme.setData(mode)
+            act_theme.triggered.connect(
+                lambda checked=False, m=mode: self._set_theme(m))
+            self._theme_group.addAction(act_theme)
+            appearance_menu.addAction(act_theme)
+            if current_theme == mode:
+                act_theme.setChecked(True)
+
+        settings_menu.addSeparator()
         self.act_log_retention = QAction("☐ Retain Activity Logs", self)
         self.act_log_retention.setCheckable(True)
         self.act_log_retention.setChecked(self.log_retention)
@@ -1374,7 +1390,6 @@ class MainWindow(QMainWindow):
             hw_text += f"  ✅ {rec_name} (Recommended)"
         hw_label = QLabel(hw_text)
         hw_label.setObjectName("hwLabel")
-        hw_label.setStyleSheet("color: #00B4D8; font-size: 11px;")
         hw_label.setWordWrap(True)
         enc_layout.addWidget(hw_label)
         video_layout.addWidget(encoder_group)
@@ -1527,7 +1542,7 @@ class MainWindow(QMainWindow):
         self.audio_tracks_btn.clicked.connect(self._open_audio_tracks_dialog)
         track_btn_layout.addWidget(self.audio_tracks_btn)
         self.audio_tracks_status = QLabel("")
-        self.audio_tracks_status.setStyleSheet("color: #888; font-size: 10px;")
+        self.audio_tracks_status.setObjectName("audioTracksStatus")
         track_btn_layout.addWidget(self.audio_tracks_status)
         aud_layout.addRow("", track_btn_layout)
         audio_layout.addWidget(audio_group)
@@ -1728,6 +1743,7 @@ class MainWindow(QMainWindow):
 
         queue_btn_layout = QHBoxLayout()
         self.queue_start_btn = QPushButton("▶ Start Queue")
+        self.queue_start_btn.setObjectName("primaryBtn")
         self.queue_start_btn.setToolTip("Start processing all pending queue jobs")
         self.queue_start_btn.clicked.connect(lambda: self._start_queue())
         queue_btn_layout.addWidget(self.queue_start_btn)
@@ -1749,7 +1765,7 @@ class MainWindow(QMainWindow):
         prog_layout.setContentsMargins(4, 6, 4, 4)
 
         self.status_label = QLabel("Ready")
-        self.status_label.setStyleSheet("color: #2ECC71; font-weight: bold; font-size: 13px;")
+        self.status_label.setObjectName("statusLabel")
         self.status_label.setToolTip("Current operation status")
         prog_layout.addWidget(self.status_label)
 
@@ -2521,6 +2537,13 @@ class MainWindow(QMainWindow):
             "ملاحظة: الواجهة أساساً باللغة الإنجليزية.\n"
             "متصفح المساعدة (F1) فقط يستخدم اللغة المحددة.")
 
+    def _set_theme(self, mode):
+        """Appearance menu: persist + re-apply the Fahhim theme live."""
+        set_mode(self.config, mode)
+        apply_theme(QApplication.instance(), mode)
+        for act in self._theme_group.actions():
+            act.setChecked(act.data() == mode)
+
     def _toggle_update_check(self, checked):
         self.config.set('general', 'check_updates', checked)
         self.config.save()
@@ -2801,16 +2824,17 @@ class MainWindow(QMainWindow):
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         info_layout.addWidget(title)
 
+        _link = current_palette()['info']
         info_layout.addWidget(QLabel(f"<b>Version:</b> {__version__} &nbsp;|&nbsp; <b>License:</b> GPLv3"))
         info_layout.addWidget(QLabel(f"🖥️ <b>Hardware:</b> {hw}"))
         info_layout.addWidget(QLabel(f"⚡ <b>Recommended:</b> {recommended}"))
         info_layout.addWidget(QLabel(
-            'Powered by <a href="https://handbrake.fr" style="color: #00B4D8;">HandBrakeCLI</a>'
-            ' &nbsp;|&nbsp; '
-            '<a href="https://ffmpeg.org" style="color: #00B4D8;">FFmpeg</a>'
-            ' &nbsp;|&nbsp; '
-            '<a href="https://ffmpeg.org/ffprobe.html" style="color: #00B4D8;">FFprobe</a>'
-            ' &nbsp;|&nbsp; Built with <a href="https://www.qt.io/qt-for-python" style="color: #00B4D8;">PyQt6</a>'
+            f'Powered by <a href="https://handbrake.fr" style="color: {_link};">HandBrakeCLI</a>'
+            f' &nbsp;|&nbsp; '
+            f'<a href="https://ffmpeg.org" style="color: {_link};">FFmpeg</a>'
+            f' &nbsp;|&nbsp; '
+            f'<a href="https://ffmpeg.org/ffprobe.html" style="color: {_link};">FFprobe</a>'
+            f' &nbsp;|&nbsp; Built with <a href="https://www.qt.io/qt-for-python" style="color: {_link};">PyQt6</a>'
         ))
 
         sep = QFrame()
@@ -2818,7 +2842,7 @@ class MainWindow(QMainWindow):
         sep.setFrameShadow(QFrame.Shadow.Sunken)
         info_layout.addWidget(sep)
 
-        website = QLabel('<a href="https://moteklab.com" style="color: #00B4D8;">🌐 moteklab.com</a>')
+        website = QLabel(f'<a href="https://moteklab.com" style="color: {_link};">🌐 moteklab.com</a>')
         website.setOpenExternalLinks(True)
         website.setAlignment(Qt.AlignmentFlag.AlignCenter)
         info_layout.addWidget(website)

@@ -152,6 +152,74 @@ def test_launch_applies_theme():
           'apply_theme(app, current_mode(config))' in src)
 
 
+def test_no_hardcoded_colors_in_main_window():
+    src = (ROOT / 'ui' / 'main_window.py').read_text()
+    check("no #00B4D8 in ui/main_window.py", '#00B4D8' not in src)
+    check("no #2ECC71 in ui/main_window.py", '#2ECC71' not in src)
+    check("no #888 inline label color in ui/main_window.py", "'color: #888" not in src)
+    check("no #777 HTML color in ui/main_window.py", '#777' not in src)
+    check("primaryBtn marked on queue start button",
+          'queue_start_btn.setObjectName("primaryBtn")' in src)
+
+
+def test_appearance_menu_and_switching():
+    app = QApplication.instance() or QApplication([])
+    theme.apply_theme(app, 'light')
+    win = make_window()
+    win.show()
+    QApplication.processEvents()
+    settings_menu = None
+    for a in win.menuBar().actions():
+        if a.menu() and 'Settings' in a.text().replace('&', ''):
+            settings_menu = a.menu()
+            break
+    check("Settings menu found", settings_menu is not None)
+    appear = None
+    if settings_menu is not None:
+        for a in settings_menu.actions():
+            if a.menu() and 'Appearance' in a.text():
+                appear = a.menu()
+                break
+    check("Appearance submenu exists", appear is not None)
+    labels = [a.text() for a in appear.actions()] if appear else []
+    check(f"Light/Dark/System actions ({labels})",
+          labels == ['Light', 'Dark', 'System'])
+    dark_act = [a for a in appear.actions() if a.text() == 'Dark'][0]
+    dark_act.trigger()
+    QApplication.processEvents()
+    check("trigger Dark applies dark stylesheet", '#e5534b' in app.styleSheet())
+    check("trigger Dark persists to config",
+          theme.current_mode(win.config) == 'dark')
+    check("Dark action checked", dark_act.isChecked())
+    win.close()
+    del win
+    gc.collect()
+
+
+def test_window_renders_theme_colors():
+    app = QApplication.instance() or QApplication([])
+    theme.apply_theme(app, 'light')
+    win = make_window()
+    win.show()
+    QApplication.processEvents()
+    c_light = win.grab().toImage().pixelColor(5, 5)  # menubar strip
+    check(f"light render is rose-family (r={c_light.red()})",
+          c_light.isValid() and c_light.red() > 200)
+    win.close()
+    del win
+    gc.collect()
+    theme.apply_theme(app, 'dark')
+    win = make_window()
+    win.show()
+    QApplication.processEvents()
+    c_dark = win.grab().toImage().pixelColor(5, 5)
+    check(f"dark render is crimson-black-family (r={c_dark.red()})",
+          c_dark.isValid() and c_dark.red() < 60)
+    win.close()
+    del win
+    gc.collect()
+
+
 def main():
     app = QApplication.instance() or QApplication([])
     test_palette_tokens_and_fahhim_hexes()
@@ -161,6 +229,9 @@ def main():
     test_config_persistence()
     test_default_config_section()
     test_launch_applies_theme()
+    test_no_hardcoded_colors_in_main_window()
+    test_appearance_menu_and_switching()
+    test_window_renders_theme_colors()
     print(f"\nRESULT: ALL PASS ({PASS} checks)")
     return 0
 
