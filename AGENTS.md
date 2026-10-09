@@ -156,6 +156,14 @@ The left settings panel hugs the active tab instead of sitting at fixed 300 px (
 - Reflow keeps F small: every settings-panel `QComboBox` is `Ignored` horizontally (loop right BEFORE the wheel-guard loop in `_create_left_panel` — wheel-guard stays last); `ext_opts_layout` must stay its own row in `sub_layout` (never re-nested in `ext_btn_layout`); long non-wrappable copy (radios/checkboxes) goes: short visible text + full text in tooltip.
 - Window resize keeps stretch 0/1; width/M are session-only (no config keys).
 
+## Fahhim Theme Pattern (ui/theme.py)
+vconv is themed with Fahhim's palette (Rosé light / Crimson dark). **`ui/theme.py` is the single source of truth for colors — hardcoding a hex in widget code is a rule violation** (enforced by the source scan in `tests/test_theme.py`).
+- `PALETTES['light'|'dark']` copied verbatim from `~/WebProjects/Fahhim/src/index.css` (tokens: background/foreground/card*/primary*/secondary*/muted*/accent*/border/input/destructive/grad_*/info/success/subtle). `build_stylesheet(theme)` emits the app-wide QSS (CSS braces doubled — f-string).
+- `apply_theme(app, mode)` is called in `launch()` BEFORE MainWindow is constructed (first paint themed). It sets the Fusion style once, and `mode='system'` (default) resolves via `QStyleHints.colorScheme()` and subscribes `colorSchemeChanged` for live OS-follow (connection is module-guarded — connect exactly once).
+- Persistence: `appearance/theme` via `set_mode()`/`current_mode()`; UI: Settings → Appearance (`QActionGroup`, Light/Dark/System), handler `_set_theme`.
+- Widget-embedded colors use **objectNames + QSS rules** (`QLabel#hwLabel`, `QLabel#statusLabel`, `QLabel#audioTracksStatus`) so a live theme switch recolors them; HTML links use `current_palette()['info']` at build time. Primary actions get `setObjectName("primaryBtn")` → gradient rule.
+- Never add a global `font-size` QSS rule — width H/F measurements are font-sensitive (dynamic-width pattern above).
+
 ## Encoder Capability Engine (v9.7.0)
 `core/encoder.py` is a runtime-probed capability engine, not a hardcoded map.
 - `probe_handbrake_encoders()` parses `HandBrakeCLI --help` encoder list (cached) → `HB_FAMILY_IDS[family] = (8bit_id, 10bit_id)` → `get_available_encoders()`.

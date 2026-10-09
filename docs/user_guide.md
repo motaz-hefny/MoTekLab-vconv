@@ -818,6 +818,10 @@ Runs ffprobe on each file and shows:
 
 ## Settings Management
 
+### Appearance (Theme)
+
+**Settings → Appearance** switches the whole app between **Light (Rosé)**, **Dark (Crimson)** and **System** (follows your operating system and switches live). The choice is stored as `appearance.theme` in `~/.config/vconv/vconv.conf`.
+
 ### Saving Defaults
 
 1. Configure all your preferred settings (encoder, quality, format, audio, subtitles, output)
