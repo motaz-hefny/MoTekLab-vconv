@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [10.0.4] - 2026-10-10
+
+### Fixed
+- **Matroska Metadata Fidelity Across Media Players** (`core/converter.py`): Resolved an issue where converting files to MKV caused media players (VLC, MPV, MediaInfo, Plex) to show missing or blank Artist, Date, and Encoded by metadata fields.
+  - **Dual-Level XML Tagging**: Implemented compliant Matroska hierarchical XML tagging using `mkvpropedit` with both `TargetTypeValue 50` (Album/Collection/Movie level) and `TargetTypeValue 30` (Track/Playback level). Tag 30 satisfies VLC's demuxer requirement (`vlc_meta_Artist`, `vlc_meta_Date`, `vlc_meta_EncodedBy`), while Tag 50 populates collection-level metadata.
+  - **MediaInfo Title Cleanliness**: Configured Matroska Segment Info `--edit info --set title=...` exclusively, preventing duplication in Tag 50 and eliminating the `"Title / Title"` slash glitch in MediaInfo.
+  - **Tag Deduplication**: Built-in set tracking prevents redundant `<Simple>` tag elements across aliases (e.g. `artist`, `performer`, `album_artist`, `date`, `year`).
+  - **FFmpeg Fallback Flags**: Added explicit `-metadata DATE_RELEASED=...`, `-metadata DATE_RECORDED=...`, `-metadata ENCODED_BY=...`, `-metadata ARTIST=...`, and `-metadata:s:v:0 ARTIST=...` fallback flags when remuxing without `mkvtoolnix`.
+- **MP4 Apple ilst Atom Mapping Fidelity** (`core/converter.py`):
+  - Added Apple 4CC atom mapping for `encoder` and `encoded_by` to `\xa9too`, ensuring encoding tool attribution is preserved without being filtered out.
+  - Added `performer` and `lead_performer` aliases mapped to `\xa9ART`.
+  - Added `date_released`, `date_recorded`, `date_written`, and `year` aliases mapped to `\xa9day`.
+
 ## [10.0.3] - 2026-10-10
 
 ### Fixed

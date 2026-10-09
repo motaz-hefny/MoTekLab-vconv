@@ -541,17 +541,20 @@ class Converter:
                 'show': b'tvsh', 'season_number': b'tvsn',
                 'episode_id': b'tves', 'episode_number': b'tven',
                 'network': b'tvnn', 'copyright': b'cprt',
+                'encoded_by': '\xa9too'.encode('latin-1'),
+                'encoder': '\xa9too'.encode('latin-1'),
             }
             _MKV = {
                 'collection/title': 'show', 'season/part_number': 'season_number',
                 'episode/part_number': 'episode_id', 'episode/title': 'episode_number',
                 'season.part_num': 'season_number', 'episode.part_num': 'episode_id',
                 'summary': 'synopsis', 'date_released': 'date', 'date_release': 'date',
-                'date_encoded': None, 'writing_application': None,
+                'date_recorded': 'date', 'date_written': 'date', 'year': 'date',
+                'performer': 'artist', 'lead_performer': 'artist',
+                'encoded_by': 'encoded_by',
             }
             _INT = {'tvsn', 'tves', 'season_number', 'episode_id'}
-            _SKIP = {'encoder', 'major_brand', 'minor_version', 'compatible_brands',
-                     'date_encoded', 'writing_application',
+            _SKIP = {'major_brand', 'minor_version', 'compatible_brands',
                      '_statistics_writing_app', '_statistics_writing_date_utc',
                      '_statistics_tags'}
 
@@ -861,7 +864,140 @@ class Converter:
             except Exception:
                 return False
 
-        def build_ffmpeg_cmd(meta_source, cover_tmp_path=None, is_jpeg=True):
+        def _apply_mkv_metadata(mkv_dest, tags, title=None):
+            """Apply Matroska tags using mkvpropedit (if available) with TargetTypeValue 50
+            (Album/Collection) and 30 (Track/Movie playback level).
+            This guarantees players like VLC, MPV, Plex, MediaInfo display Artist, Date,
+            Encoded by, Director, Actors, Genre, etc. correctly."""
+            if not tags or not os.path.exists(mkv_dest):
+                return False
+            mkvpropedit_bin = shutil.which('mkvpropedit')
+            if not mkvpropedit_bin:
+                return False
+            try:
+                import xml.etree.ElementTree as ET
+                tags_el = ET.Element('Tags')
+
+                # TargetTypeValue 50: Collection/Album/Movie level
+                tag_50 = ET.SubElement(tags_el, 'Tag')
+                t_50 = ET.SubElement(tag_50, 'Targets')
+                ET.SubElement(t_50, 'TargetTypeValue').text = '50'
+
+                # TargetTypeValue 30: Track/Playback level (maps to vlc_meta_Artist in VLC)
+                tag_30 = ET.SubElement(tags_el, 'Tag')
+                t_30 = ET.SubElement(tag_30, 'Targets')
+                ET.SubElement(t_30, 'TargetTypeValue').text = '30'
+
+                mkv_tag_map = {
+                    'title': 'TITLE',
+                    'artist': 'ARTIST',
+                    'performer': 'ARTIST',
+                    'lead_performer': 'ARTIST',
+                    'date': 'DATE_RELEASED',
+                    'date_released': 'DATE_RELEASED',
+                    'date_recorded': 'DATE_RECORDED',
+                    'date_release': 'DATE_RELEASED',
+                    'year': 'DATE_RELEASED',
+                    'encoder': 'ENCODED_BY',
+                    'encoded_by': 'ENCODED_BY',
+                    'comment': 'COMMENT',
+                    'genre': 'GENRE',
+                    'description': 'DESCRIPTION',
+                    'synopsis': 'SYNOPSIS',
+                    'summary': 'DESCRIPTION',
+                    'director': 'DIRECTOR',
+                    'actor': 'ACTOR',
+                    'composer': 'COMPOSER',
+                    'screenwriter': 'SCREENWRITER',
+                    'writer': 'SCREENWRITER',
+                    'written_by': 'SCREENWRITER',
+                    'producer': 'PRODUCER',
+                    'rating': 'RATING',
+                    'law_rating': 'LAW_RATING',
+                    'itunextc': 'CONTENT_RATING',
+                    'imdb': 'IMDB',
+                    'tmdb': 'TMDB',
+                    'url': 'URL',
+                    'original_title': 'ORIGINAL_TITLE',
+                    'copyright': 'COPYRIGHT',
+                    'album_artist': 'ARTIST',
+                }
+
+                added_50 = set()
+                added_30 = set()
+
+                def _add_simple(parent, name, val, tracker=None):
+                    val_str = str(val).strip()
+                    if not val_str:
+                        return
+                    if tracker is not None:
+                        key = (name, val_str)
+                        if key in tracker:
+                            return
+                        tracker.add(key)
+                    s = ET.SubElement(parent, 'Simple')
+                    ET.SubElement(s, 'Name').text = name
+                    ET.SubElement(s, 'String').text = val_str
+
+                for k, v in tags.items():
+                    if not v:
+                        continue
+                    lk = k.lower().strip()
+                    if lk.startswith('_') or lk in ('major_brand', 'minor_version', 'compatible_brands'):
+                        continue
+                    mkv_name = mkv_tag_map.get(lk, k.upper())
+
+                    # Add to Tag 50 (except TITLE which is set cleanly via segment info)
+                    if mkv_name != 'TITLE':
+                        _add_simple(tag_50, mkv_name, v, added_50)
+
+                    # Add to Tag 30 (VLC Artist, Date, EncodedBy)
+                    if lk in ('artist', 'performer', 'lead_performer'):
+                        _add_simple(tag_30, 'ARTIST', v, added_30)
+                        _add_simple(tag_30, 'LEAD_PERFORMER', v, added_30)
+                        _add_simple(tag_30, 'PERFORMER', v, added_30)
+                    elif lk in ('date', 'date_released', 'year'):
+                        _add_simple(tag_30, 'DATE_RELEASED', v, added_30)
+                    elif lk in ('encoder', 'encoded_by'):
+                        _add_simple(tag_30, 'ENCODED_BY', v, added_30)
+                    elif lk in ('director', 'actor'):
+                        _add_simple(tag_30, mkv_name, v, added_30)
+
+                # Ensure DATE_RELEASED and DATE_RECORDED are also set if date exists
+                d_val = tags.get('date') or tags.get('DATE_RELEASED') or tags.get('DATE_RECORDED') or tags.get('year')
+                if d_val:
+                    _add_simple(tag_50, 'DATE_RELEASED', d_val, added_50)
+                    _add_simple(tag_50, 'DATE_RECORDED', d_val, added_50)
+                    _add_simple(tag_30, 'DATE_RELEASED', d_val, added_30)
+                    _add_simple(tag_30, 'DATE_RECORDED', d_val, added_30)
+
+                import tempfile
+                with tempfile.NamedTemporaryFile(suffix='.xml', delete=False, mode='wb') as xf:
+                    ET.ElementTree(tags_el).write(xf, encoding='utf-8', xml_declaration=True)
+                    xml_path = xf.name
+
+                try:
+                    prop_cmd = [mkvpropedit_bin, mkv_dest, '--tags', f'all:{xml_path}']
+                    title_to_set = title or tags.get('title') or tags.get('TITLE')
+                    if title_to_set:
+                        prop_cmd.extend(['--edit', 'info', '--set', f'title={title_to_set}'])
+                    res = subprocess.run(prop_cmd, capture_output=True, timeout=30, stdin=subprocess.DEVNULL)
+                    if res.returncode == 0:
+                        ui_log("Matroska tags & title refined with mkvpropedit (TargetTypeValue 30/50)")
+                        return True
+                    else:
+                        err = res.stderr.decode('utf-8', errors='replace').strip() if res.stderr else "Unknown error"
+                        ui_log(f"mkvpropedit warning (code {res.returncode}): {err[:200]}", is_error=True)
+                        return False
+                finally:
+                    if os.path.exists(xml_path):
+                        try: os.unlink(xml_path)
+                        except: pass
+            except Exception as e:
+                ui_log(f"mkvpropedit tagging failed: {e}", is_error=True)
+            return False
+
+        def build_ffmpeg_cmd(meta_source, cover_tmp_path=None, is_jpeg=True, explicit_tags=None):
             cmd = [
                 ffmpeg_bin, '-y', '-i', dest_path, '-i', meta_source,
                 '-map', '0', '-map_metadata', '1:g'
@@ -883,15 +1019,30 @@ class Converter:
                         '-metadata:s:t:0', f'filename={fname}',
                         '-metadata:s:t:0', f'mimetype={mime}'
                     ])
+                if explicit_tags:
+                    d_val = explicit_tags.get('date') or explicit_tags.get('DATE_RELEASED') or explicit_tags.get('year')
+                    e_val = explicit_tags.get('encoder') or explicit_tags.get('ENCODER') or explicit_tags.get('encoded_by')
+                    a_val = explicit_tags.get('artist') or explicit_tags.get('ARTIST') or explicit_tags.get('performer')
+                    if d_val:
+                        cmd.extend(['-metadata', f'DATE_RELEASED={d_val}',
+                                    '-metadata', f'DATE_RECORDED={d_val}',
+                                    '-metadata', f'DATE={d_val}'])
+                    if e_val:
+                        cmd.extend(['-metadata', f'ENCODED_BY={e_val}'])
+                    if a_val:
+                        cmd.extend(['-metadata', f'ARTIST={a_val}',
+                                    '-metadata', f'LEAD_PERFORMER={a_val}',
+                                    '-metadata', f'PERFORMER={a_val}',
+                                    '-metadata:s:v:0', f'ARTIST={a_val}'])
             elif output_format == 'mp4':
                 cmd.extend(['-movflags', '+faststart'])
             cmd.extend(['-c', 'copy', tmp_video_path])
             return cmd
 
-        def try_ffmpeg_copy(meta_source, desc, cover_tmp_path=None, is_jpeg=True):
+        def try_ffmpeg_copy(meta_source, desc, cover_tmp_path=None, is_jpeg=True, explicit_tags=None):
             """Run ffmpeg -map_metadata from meta_source. Returns True on verified success."""
-            probe_tags(meta_source, f"{desc}: metadata source")
-            result = subprocess.run(build_ffmpeg_cmd(meta_source, cover_tmp_path=cover_tmp_path, is_jpeg=is_jpeg),
+            tags = explicit_tags if explicit_tags is not None else probe_tags(meta_source, f"{desc}: metadata source")
+            result = subprocess.run(build_ffmpeg_cmd(meta_source, cover_tmp_path=cover_tmp_path, is_jpeg=is_jpeg, explicit_tags=tags),
                                     capture_output=True, text=True,
                                     timeout=600, stdin=subprocess.DEVNULL)
             if result.returncode != 0 or not (os.path.exists(tmp_video_path) and os.path.getsize(tmp_video_path) > 0):
@@ -902,6 +1053,8 @@ class Converter:
                     except: pass
                 return False
             shutil.move(tmp_video_path, dest_path)
+            if output_format == 'mkv' and tags:
+                _apply_mkv_metadata(dest_path, tags, tags.get('title'))
             out_tags = probe_tags(dest_path, f"{desc}: output")
             meaningful = [k for k in out_tags if k not in
                          ('major_brand','minor_version','compatible_brands','encoder')]
@@ -930,6 +1083,8 @@ class Converter:
                                     timeout=600, stdin=subprocess.DEVNULL)
             if result.returncode == 0 and os.path.getsize(tmp_video_path) > 0:
                 shutil.move(tmp_video_path, dest_path)
+                if output_format == 'mkv':
+                    _apply_mkv_metadata(dest_path, tags, tags.get('title'))
                 out_tags = probe_tags(dest_path, f"{desc}: explicit output")
                 meaningful = [k for k in out_tags if k not in
                              ('major_brand','minor_version','compatible_brands','encoder')]
