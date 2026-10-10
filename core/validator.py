@@ -436,9 +436,55 @@ class FileValidator:
             min_pct = max(5, int(round((pct_mag - 0.03) * 100)))
             max_pct = int(round((pct_mag + 0.03) * 100))
             est_comp = f" (est. {est_sz_str} vs source {src_sz_str})" if (est_sz_str and src_sz_str) else ""
+
+            # Visual fidelity & quality classification based on encoder and RF
+            enc_lower = (encoder or '').lower()
+            is_h264_target = any(k in enc_lower for k in ('264', 'avc'))
+
+            if is_h264_target:
+                # H.264 RF scale
+                if quality <= 19:
+                    category = "Optimal"
+                    fidelity_desc = "with near-lossless visual quality."
+                elif quality <= 24:
+                    category = "Optimal"
+                    fidelity_desc = "with excellent visual fidelity."
+                elif quality <= 27:
+                    category = "Optimal"
+                    fidelity_desc = "with good visual quality (balanced size and fidelity)."
+                elif quality <= 32:
+                    category = "High Compression"
+                    fidelity_desc = "with noticeable compression trade-offs (minor softening in fine textures and motion)."
+                elif quality <= 38:
+                    category = "Aggressive Compression"
+                    fidelity_desc = f"with visible quality degradation and compression artifacts (RF {quality} prioritizes low file size over fidelity)."
+                else:
+                    category = "Extreme Compression (Low Quality)"
+                    fidelity_desc = f"with severe visual degradation (heavy macroblocking and loss of detail) (RF {quality} sacrifices visual quality for file size)."
+            else:
+                # HEVC / AV1 RF scale
+                if quality <= 22:
+                    category = "Optimal"
+                    fidelity_desc = "with near-lossless visual quality."
+                elif quality <= 27:
+                    category = "Optimal"
+                    fidelity_desc = "with excellent visual fidelity."
+                elif quality <= 31:
+                    category = "Optimal"
+                    fidelity_desc = "with good visual quality (balanced size and fidelity)."
+                elif quality <= 36:
+                    category = "High Compression"
+                    fidelity_desc = "with noticeable compression trade-offs (minor softening in fine textures and motion)."
+                elif quality <= 43:
+                    category = "Aggressive Compression"
+                    fidelity_desc = f"with visible quality degradation and compression artifacts (RF {quality} prioritizes low file size over fidelity)."
+                else:
+                    category = "Extreme Compression (Low Quality)"
+                    fidelity_desc = f"with severe visual degradation (heavy macroblocking and loss of detail) (RF {quality} sacrifices visual quality for file size)."
+
             msg = (
-                f"Optimal: Converting {v_label}{res_str} @ {src_mbps:.1f} Mbps to {enc_label} (RF {quality}) "
-                f"is projected to achieve ~{min_pct}%–{max_pct}% file size reduction{est_comp} with excellent visual fidelity."
+                f"{category}: Converting {v_label}{res_str} @ {src_mbps:.1f} Mbps to {enc_label} (RF {quality}) "
+                f"is projected to achieve ~{min_pct}%–{max_pct}% file size reduction{est_comp} {fidelity_desc}"
             )
 
         # Check audio bloat

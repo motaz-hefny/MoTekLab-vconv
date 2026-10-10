@@ -1,7 +1,7 @@
 [Desktop Entry]
 Version=1.0
 Name=MoTekLab Video Encoder
-Comment=v10.0.4 | A modern video converter powered by HandBrakeCLI & PyQt6
+Comment=v10.0.5 | A modern video converter powered by HandBrakeCLI & PyQt6
 Exec=python3 /opt/vconv/vconv.py --gui
 Icon=vconv
 Terminal=false

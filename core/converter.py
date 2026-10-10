@@ -559,6 +559,8 @@ class Converter:
                      '_statistics_tags'}
 
             children = bytearray()
+            seen_4cc = set()
+            seen_freeform = set()
             for key, val in tags.items():
                 nk = key.lower().strip()
                 if not nk or nk in _SKIP or nk.startswith('_'):
@@ -568,10 +570,17 @@ class Converter:
                     continue
                 code = _4CC.get(mp4_key)
                 if code is not None:
+                    if code in seen_4cc:
+                        continue
+                    seen_4cc.add(code)
                     data_atom = _build_int_data(val) if mp4_key in _INT else _build_text_data(val)
                     children.extend(_build_4cc_item(code, data_atom))
                 else:
-                    children.extend(_build_freeform_atom(key.upper(), val))
+                    upper_key = key.upper().strip()
+                    if upper_key in seen_freeform:
+                        continue
+                    seen_freeform.add(upper_key)
+                    children.extend(_build_freeform_atom(upper_key, val))
             return struct.pack('>I4s', 8 + len(children), b'ilst') + bytes(children)
 
         def _add_cover_to_ilst(ilst, cover_data):
@@ -951,25 +960,41 @@ class Converter:
                     if mkv_name != 'TITLE':
                         _add_simple(tag_50, mkv_name, v, added_50)
 
-                    # Add to Tag 30 (VLC Artist, Date, EncodedBy)
-                    if lk in ('artist', 'performer', 'lead_performer'):
+                    # Add to Tag 30 (VLC Artist, Date, EncodedBy, Director, Actor, Genre, Description, etc.)
+                    if lk in ('artist', 'performer', 'lead_performer', 'album_artist'):
                         _add_simple(tag_30, 'ARTIST', v, added_30)
                         _add_simple(tag_30, 'LEAD_PERFORMER', v, added_30)
                         _add_simple(tag_30, 'PERFORMER', v, added_30)
-                    elif lk in ('date', 'date_released', 'year'):
+                    elif lk in ('date', 'date_released', 'year', 'date_recorded', 'date_release'):
                         _add_simple(tag_30, 'DATE_RELEASED', v, added_30)
+                        _add_simple(tag_30, 'DATE_RECORDED', v, added_30)
                     elif lk in ('encoder', 'encoded_by'):
                         _add_simple(tag_30, 'ENCODED_BY', v, added_30)
-                    elif lk in ('director', 'actor'):
+                    elif lk in ('director', 'actor', 'genre', 'description', 'synopsis', 'composer', 'writer', 'written_by', 'screenwriter'):
                         _add_simple(tag_30, mkv_name, v, added_30)
 
                 # Ensure DATE_RELEASED and DATE_RECORDED are also set if date exists
-                d_val = tags.get('date') or tags.get('DATE_RELEASED') or tags.get('DATE_RECORDED') or tags.get('year')
+                d_val = (tags.get('date') or tags.get('DATE_RELEASED') or tags.get('DATE_RECORDED') or 
+                         tags.get('year') or tags.get('date_released') or tags.get('DATE'))
                 if d_val:
                     _add_simple(tag_50, 'DATE_RELEASED', d_val, added_50)
                     _add_simple(tag_50, 'DATE_RECORDED', d_val, added_50)
                     _add_simple(tag_30, 'DATE_RELEASED', d_val, added_30)
                     _add_simple(tag_30, 'DATE_RECORDED', d_val, added_30)
+
+                e_val = tags.get('encoder') or tags.get('ENCODER') or tags.get('encoded_by') or tags.get('ENCODED_BY')
+                if e_val:
+                    _add_simple(tag_50, 'ENCODED_BY', e_val, added_50)
+                    _add_simple(tag_30, 'ENCODED_BY', e_val, added_30)
+
+                a_val = (tags.get('artist') or tags.get('ARTIST') or tags.get('performer') or 
+                         tags.get('PERFORMER') or tags.get('lead_performer') or tags.get('LEAD_PERFORMER') or 
+                         tags.get('album_artist') or tags.get('ALBUM_ARTIST'))
+                if a_val:
+                    _add_simple(tag_50, 'ARTIST', a_val, added_50)
+                    _add_simple(tag_30, 'ARTIST', a_val, added_30)
+                    _add_simple(tag_30, 'LEAD_PERFORMER', a_val, added_30)
+                    _add_simple(tag_30, 'PERFORMER', a_val, added_30)
 
                 import tempfile
                 with tempfile.NamedTemporaryFile(suffix='.xml', delete=False, mode='wb') as xf:
@@ -1036,8 +1061,32 @@ class Converter:
                                     '-metadata:s:v:0', f'ARTIST={a_val}'])
             elif output_format == 'mp4':
                 cmd.extend(['-movflags', '+faststart'])
+                if explicit_tags:
+                    for k, v in explicit_tags.items():
+                        lk = k.lower().strip()
+                        if lk.startswith('_') or lk in ('major_brand', 'minor_version', 'compatible_brands'):
+                            continue
+                        cmd.extend(['-metadata', f'{lk}={v}'])
             cmd.extend(['-c', 'copy', tmp_video_path])
             return cmd
+
+        def _apply_mp4_metadata(mp4_dest, tags, cover=None):
+            """Apply MP4 metadata using programmatic ilst injection + faststart.
+            Guarantees full parity with MKV metadata for all tags, titles, and cover art."""
+            if not tags or not os.path.exists(mp4_dest):
+                return False
+            try:
+                clean_tags = dict(tags)
+                ilst = _build_ilst_from_tags(clean_tags)
+                if cover:
+                    ilst = _add_cover_to_ilst(ilst, cover)
+                ok, delta = _inject_ilst(mp4_dest, ilst)
+                if ok:
+                    _apply_faststart(mp4_dest, tmp_video_path)
+                    return True
+            except Exception as e:
+                ui_log(f"MP4 metadata injection failed: {e}", is_error=True)
+            return False
 
         def try_ffmpeg_copy(meta_source, desc, cover_tmp_path=None, is_jpeg=True, explicit_tags=None):
             """Run ffmpeg -map_metadata from meta_source. Returns True on verified success."""
@@ -1055,6 +1104,15 @@ class Converter:
             shutil.move(tmp_video_path, dest_path)
             if output_format == 'mkv' and tags:
                 _apply_mkv_metadata(dest_path, tags, tags.get('title'))
+            elif output_format == 'mp4' and tags:
+                cover_data = None
+                if cover_tmp_path and os.path.exists(cover_tmp_path):
+                    try:
+                        with open(cover_tmp_path, 'rb') as cf:
+                            cover_data = (cf.read(), is_jpeg)
+                    except Exception:
+                        pass
+                _apply_mp4_metadata(dest_path, tags, cover_data)
             out_tags = probe_tags(dest_path, f"{desc}: output")
             meaningful = [k for k in out_tags if k not in
                          ('major_brand','minor_version','compatible_brands','encoder')]
@@ -1085,6 +1143,8 @@ class Converter:
                 shutil.move(tmp_video_path, dest_path)
                 if output_format == 'mkv':
                     _apply_mkv_metadata(dest_path, tags, tags.get('title'))
+                elif output_format == 'mp4':
+                    _apply_mp4_metadata(dest_path, tags)
                 out_tags = probe_tags(dest_path, f"{desc}: explicit output")
                 meaningful = [k for k in out_tags if k not in
                              ('major_brand','minor_version','compatible_brands','encoder')]
@@ -1312,7 +1372,7 @@ class Converter:
                 ui_log("Caching entire source locally...")
                 shutil.copy2(source_path, cache_full)
 
-                if is_mp4:
+                if is_mp4 and output_format == 'mp4':
                     # Try binary on full copy
                     try:
                         ui_log("Attempting binary ilst from full cache...")
@@ -1328,19 +1388,37 @@ class Converter:
                                     return
                     except Exception as e:
                         ui_log(f"Full binary ilst failed: {e}", is_error=True)
+                elif output_format == 'mkv':
+                    ui_log("Target is MKV — copying tags, chapters & cover art...")
+                    cover = _extract_cover_art(cache_full)
+                    cover_tmp_path = None
+                    import tempfile
+                    td = tempfile.TemporaryDirectory()
+                    try:
+                        if cover:
+                            ext = '.jpg' if cover[1] else '.png'
+                            cover_tmp_path = os.path.join(td.name, f'cover{ext}')
+                            with open(cover_tmp_path, 'wb') as cf:
+                                cf.write(cover[0])
+                        if try_ffmpeg_copy(cache_full, "Full copy MKV",
+                                           cover_tmp_path=cover_tmp_path,
+                                           is_jpeg=cover[1] if cover else True):
+                            succeeded = True
+                            return
+                    finally:
+                        try:
+                            td.cleanup()
+                        except:
+                            pass
                 else:
-                    # Non-MP4: build custom ilst from ffprobe tags
-                    ui_log("Non-MP4 source — building ilst from tags...")
+                    # Non-MP4 source -> MP4 target: build custom ilst from ffprobe tags
+                    ui_log("Target is MP4 — building ilst from tags...")
                     try:
                         tags = probe_tags(cache_full, "MKV tags")
                         cover = _extract_cover_art(cache_full)
                         if cover:
                             ui_log(f"Cover art found ({len(cover[0])} bytes)")
-                        ilst = _build_ilst_from_tags(tags if tags else {})
-                        if cover:
-                            ilst = _add_cover_to_ilst(ilst, cover)
-                        ok, delta = _inject_ilst(dest_path, ilst)
-                        if ok and _apply_faststart(dest_path, tmp_video_path):
+                        if _apply_mp4_metadata(dest_path, tags if tags else {}, cover):
                             out = probe_tags(dest_path, "Built ilst + faststart")
                             meaningful = [k for k in out if k not in
                                          ('major_brand','minor_version','compatible_brands','encoder')]

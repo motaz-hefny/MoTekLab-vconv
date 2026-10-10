@@ -2440,7 +2440,7 @@ class MainWindow(QMainWindow):
             else:
                 issues.append(f"<b>{html.escape(os.path.basename(f))}</b>: {html.escape(result.message)}")
             info = self._file_info_cache.get(f, {})
-            eff = self.validator.check_efficiency(f, info, self.quality, self.audio_encoder)
+            eff = self.validator.check_efficiency(f, info, self.quality, self.audio_encoder, getattr(self, 'encoder', ''))
             if eff:
                 efficiency_warnings.append((os.path.basename(f), eff))
 
@@ -2462,6 +2462,17 @@ class MainWindow(QMainWindow):
                 sub_parts.append(f"{ext_subs} linked external sub(s)")
             sub_desc = " • " + ", ".join(sub_parts) if sub_parts else ""
 
+            msg_text = fb.get('message', 'Ready with optimal settings.')
+            if 'Extreme Compression' in msg_text or 'Aggressive Compression' in msg_text:
+                status_color = p.get('destructive', '#e74c3c') if 'Extreme' in msg_text else p.get('accent_fg', '#e67e22')
+                status_icon = "⚠️"
+            elif 'High Compression' in msg_text:
+                status_color = p.get('info', '#3498db')
+                status_icon = "ℹ️"
+            else:
+                status_color = p['success']
+                status_icon = "✓"
+
             readiness_items.append(
                 f"<div style='margin-bottom: 8px;'>"
                 f"<b>{html.escape(os.path.basename(f))}</b><br/>"
@@ -2469,7 +2480,7 @@ class MainWindow(QMainWindow):
                 f"Source: {html.escape(v_desc or 'N/A')} • {html.escape(a_desc or 'N/A')}{html.escape(sub_desc)}<br/>"
                 f"Target: {self.format.upper()} ({getattr(self, 'encoder', 'auto')}, RF {self.quality}) • Audio: {self.audio_encoder}"
                 f"</span><br/>"
-                f"<span style='font-size: 11px; color: {p['success']};'>✓ {html.escape(fb.get('message', 'Ready with optimal settings.'))}</span>"
+                f"<span style='font-size: 11px; color: {status_color};'>{status_icon} {html.escape(msg_text)}</span>"
                 f"</div>"
             )
 

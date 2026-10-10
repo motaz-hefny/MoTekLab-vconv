@@ -7,7 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [10.0.4] - 2026-10-10
+## [10.0.5] - 2026-10-10
+
+### Fixed
+- **Accurate Visual Fidelity & Quality Trade-Off Grading** (`core/validator.py`, `ui/main_window.py`):
+  - Eliminated misleading `"with excellent visual fidelity"` notices on aggressive and extreme RF settings (e.g. RF 40, RF 51).
+  - Dynamically classifies compression quality across encoder families (`HEVC`, `AV1`, `H.264`):
+    - **HEVC / AV1**: RF $\le 22$ (Near-lossless), RF 23–27 (Optimal / excellent visual fidelity), RF 28–31 (Good visual quality / balanced), RF 32–36 (High Compression / noticeable softening in textures and motion), RF 37–43 (Aggressive Compression / visible degradation and artifacts), RF $\ge 44$ (Extreme Compression / severe macroblocking and loss of detail).
+    - **H.264**: RF $\le 19$ (Near-lossless), RF 20–24 (Optimal / excellent visual fidelity), RF 25–27 (Good visual quality), RF 28–32 (High Compression), RF 33–38 (Aggressive Compression), RF $\ge 39$ (Extreme Compression).
+  - Preserves exact mathematical file size reduction projections (e.g. ~65%–75% reduction at RF 40, ~85%–95% at RF 51) while truthfully reporting visual fidelity trade-offs.
+  - Dynamically styles the Validation & Optimization Report dialog with amber warning badges (`⚠️`) and accentuated color coding on aggressive/extreme compression settings rather than a green checkmark.
+- **Strict Metadata Parity & Symmetry Across MKV and MP4 Containers** (`core/converter.py`):
+  - **Symmetric MP4 Metadata Engine (`_apply_mp4_metadata`)**: Implemented dedicated programmatic Apple QuickTime/iTunes `ilst` atom injection with `_apply_faststart` in all FFmpeg fallback and remux paths (`try_ffmpeg_copy`, `try_explicit_metadata`), ensuring identical metadata preservation whether targeting MKV or MP4.
+  - **Apple ilst Atom Deduplication**: Added `seen_4cc` and `seen_freeform` deduplication tracking in `_build_ilst_from_tags`, eliminating duplicate `©day`, `©ART`, `\xa9too`, and `----` freeform atoms caused by synonymous container tags (`date`/`year`/`date_released`).
+  - **Comprehensive Matroska Tag 30/50 Dual-Level Coverage**: Enriched Tag 30 (playback/track level in VLC, MPV, Plex) to include `ARTIST`, `LEAD_PERFORMER`, `PERFORMER`, `ALBUM_ARTIST`, `DATE_RELEASED`, `DATE_RECORDED`, `ENCODED_BY`, `DIRECTOR`, `ACTOR`, `GENRE`, `DESCRIPTION`, `SYNOPSIS`, and `COMPOSER`. Tag 50 receives collection-level metadata, while Segment Info exclusively owns Title, preventing display concatenation.
+  - Fixed non-local cache fallback in Step 2 to route cleanly between MKV and MP4 pipelines without calling MP4 atom injection on MKV containers.
 
 ### Fixed
 - **Matroska Metadata Fidelity Across Media Players** (`core/converter.py`): Resolved an issue where converting files to MKV caused media players (VLC, MPV, MediaInfo, Plex) to show missing or blank Artist, Date, and Encoded by metadata fields.
