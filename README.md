@@ -3,7 +3,7 @@
 <p align="center">
   <strong>A modern video conversion tool powered by HandBrakeCLI & PyQt6</strong>
   <br>
-  <a href="https://moteklab.com">moteklab.com</a>
+  <a href="https://www.moteklab.com">moteklab.com</a>
 </p>
 
 <p align="center">
@@ -247,6 +247,18 @@ Press Shift+F1 then click any control for context help
 
 ---
 
+---
+
+## MoTekLab Ecosystem & Official Links
+
+- **Architecture & Release Guide:** [MoTekLab Video Encoder v10 Guide](https://www.moteklab.com/blog/vconv-10-launch)
+- **SourceForge Mirror:** [sourceforge.net/projects/moteklab-vconv](https://sourceforge.net/projects/moteklab-vconv/)
+- **All MoTekLab Products:** [www.moteklab.com/products](https://www.moteklab.com/products)
+- **MoTekLab MetaForge (Linux Media Metadata Tagger):** [www.moteklab.com/metaforge](https://www.moteklab.com/metaforge)
+- **MoTekLab MD Converter Pro (Client-Side Markdown/RTF/RTL):** [md.moteklab.com](https://md.moteklab.com)
+- **Fahhim AI Prompt Engineer (Arabic & English):** [fahhim.moteklab.com](https://fahhim.moteklab.com)
+- **MoTekLab Proxy Suite (Linux Multi-Hop Diagnostics):** [www.moteklab.com/download/proxy-suite](https://www.moteklab.com/download/proxy-suite)
+
 ## License
 
 [GPLv3](LICENSE) — Created by MoTekLab
@@ -254,5 +266,5 @@ Press Shift+F1 then click any control for context help
 ---
 
 <p align="center">
-  <a href="https://moteklab.com">moteklab.com</a> &middot; Made with ❤️
+  <a href="https://www.moteklab.com">moteklab.com</a> &middot; Made with ❤️
 </p>
